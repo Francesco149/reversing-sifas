@@ -306,4 +306,235 @@ void DMHttpApi.__c__DisplayClass14_1$$_Login_b__1(int param_1,int param_2)
 }
 ```
 
+so essentially what's happening is some http request response contains a
+base64 key which is then decoded and xored with a xor key string. the
+result is used as the session key
+
+this appears to be the xor key:
+
+```c
+  uVar4 = *(undefined4 *)(param_1 + 8);
+
+  ...
+
+  pAVar2 = (Array *)Lib$$XorBytes(uVar4,uVar1);
+```
+
+param_1 appears to be some class instance, let's map the struct with just
+the xor key field for now
+
+as for param_2, we can deduce that it's a LoginResponse instance since it's
+passed as the this pointer for `LoginResponse$$get_SessionKey`
+
+let's map some of LoginResponse's field by looking at its getters
+
+```c
+undefined4 LoginResponse$$get_UserModel(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 0xc);
+}
+
+undefined4 LoginResponse$$get_SessionKey(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 8);
+}
+
+uint LoginResponse$$get_IsPlatformServiceLinked(int param_1)
+
+{
+  return (uint)*(byte *)(param_1 + 0x10);
+}
+
+undefined8 LoginResponse$$get_LastTimestamp(int param_1)
+
+{
+  return CONCAT44(*(undefined4 *)(param_1 + 0x18),*(undefined4 *)(param_1 + 0x1c));
+}
+
+undefined4 LoginResponse$$get_Cautions(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 0x20);
+}
+
+uint LoginResponse$$get_ShowHomeCaution(int param_1)
+
+{
+  return (uint)*(byte *)(param_1 + 0x24);
+}
+
+undefined4 LoginResponse$$get_LiveResume(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 0x28);
+}
+```
+
+by looking at `DMHttpApi$$Logout` we can map a few unknown fields for
+DMHttpApi as well as the connection field
+
+```c
+void DMHttpApi$$Logout(void)
+
+{
+  DMHttpApiObject *pDVar1;
+  DMHttpApi *pDVar2;
+  int iVar3;
+
+  if (DAT_037033d6 == '\0') {
+                    /* WARNING: Subroutine does not return */
+    FUN_008722e4(0x2bd3);
+  }
+  if (((Class$DotUnder.DMHttpApi->BitField1 & 2) != 0) && (Class$DotUnder.DMHttpApi->Unk1 == 0)) {
+    FUN_0087fd40();
+  }
+  iVar3 = *(int *)&Class$DotUnder.DMHttpApi->Instance->field_0xc;
+  if (iVar3 != 0) {
+    if (((Class$DotUnder.DMHttpApi->BitField1 & 2) != 0) && (Class$DotUnder.DMHttpApi->Unk1 == 0)) {
+      FUN_0087fd40();
+      iVar3 = *(int *)&Class$DotUnder.DMHttpApi->Instance->field_0xc;
+      if (iVar3 == 0) {
+        iVar3 = 0;
+        ThrowException(0);
+      }
+    }
+    Network.Connection$$Cancel(iVar3,0);
+    if (((*(byte *)(_Class$DotUnder.HttpSubject + 0xbf) & 2) != 0) &&
+       (*(int *)(_Class$DotUnder.HttpSubject + 0x70) == 0)) {
+      FUN_0087fd40();
+    }
+    HttpSubject$$OnCancel();
+  }
+  if (((Class$DotUnder.DMHttpApi->BitField1 & 2) != 0) && (Class$DotUnder.DMHttpApi->Unk1 == 0)) {
+    FUN_0087fd40();
+  }
+  pDVar2 = Class$DotUnder.DMHttpApi->Instance;
+  *(undefined4 *)&pDVar2->field_0x4 = 0;
+  *(undefined4 *)pDVar2 = 0;
+  pDVar1 = Class$DotUnder.DMHttpApi;
+  Class$DotUnder.DMHttpApi->Instance->SessionKey = (Array *)0x0;
+  *(undefined4 *)&pDVar1->Instance->field_0xc = 0;
+  *(undefined4 *)&pDVar1->Instance[1].field_0x1 = 0;
+  *(undefined4 *)&pDVar1->Instance[1].field_0x5 = 0;
+  return;
+}
+```
+
+by looking at DmHttpApi's getters i was able to name the field IsGuarded
+
+at this point i just start looking at every DmHttpApi method, this seems
+to be a simple counter, and tells me that that Unk3 field is the request id
+
+```c
+void DMHttpApi$$CreateRequestId(void)
+
+{
+  DMHttpApiObject *pDVar1;
+  
+  if (DAT_037033da == '\0') {
+                    /* WARNING: Subroutine does not return */
+    FUN_008722e4(0x2bd0);
+  }
+  if (((Class$DotUnder.DMHttpApi->BitField1 & 2) != 0) && (Class$DotUnder.DMHttpApi->Unk1 == 0)) {
+    FUN_0087fd40();
+  }
+  pDVar1 = Class$DotUnder.DMHttpApi;
+  Class$DotUnder.DMHttpApi->Instance->Unk3 = Class$DotUnder.DMHttpApi->Instance->Unk3 + 1;
+  FUN_01746d54(&pDVar1->Instance->Unk3,0);
+  return;
+}
+```
+
+that function call at the end appears to stringify it, so I assume this
+returns a string
+
+in `DMHttpApi.__c__DisplayClass14_1$$_Login_b__2` i found a reference to
+some UserKey class, we'll take a look at that later
+
+more familiar base64 xoring in this login step, also it references
+StartupResponse which I should probably start mapping
+
+```c
+
+void DMHttpApi.__c__DisplayClass14_2$$_Login_b__4(int param_1,int param_2)
+
+{
+  undefined4 uVar1;
+  Array *string;
+  int iVar2;
+  Array *pAVar3;
+
+  if (DAT_037033e5 == '\0') {
+                    /* WARNING: Subroutine does not return */
+    FUN_008722e4(0xb486);
+  }
+  if (param_2 == 0) {
+    ThrowException(0);
+    uVar1 = StartupResponse$$get_UserId(0,0);
+    pAVar3 = *(Array **)(param_1 + 8);
+    ThrowException(0);
+  }
+  else {
+    uVar1 = StartupResponse$$get_UserId(param_2,0);
+    pAVar3 = *(Array **)(param_1 + 8);
+  }
+  string = (Array *)StartupResponse$$get_AuthorizationKey(param_2,0);
+  if (((*(byte *)(Class$System.Convert + 0xbf) & 2) != 0) &&
+     (*(int *)(Class$System.Convert + 0x70) == 0)) {
+    FUN_0087fd40();
+  }
+  string = Convert$$FromBase64String(string);
+  pAVar3 = Lib$$XorBytes(pAVar3,string);
+  UserKey$$SetIDPW(uVar1,pAVar3,0);
+  iVar2 = *(int *)(param_1 + 0xc);
+  if (iVar2 == 0) {
+    ThrowException(0);
+  }
+  iVar2 = *(int *)(iVar2 + 0x10);
+  if (iVar2 == 0) {
+    ThrowException(0);
+  }
+  FUN_023b38fc(iVar2,uVar1,pAVar3,Method$Action_int_-byte[]_.Invoke());
+  return;
+}
+```
+
+I mapped Connection and StartupResponse fields based on the getters as
+usual. probably unnecessary
+
+at this point I start looking through strings again and I find strings that
+are most likely api endpoints, most of them referenced by various methods
+
+```
+/login/startup
+/live/surrender
+/navi/tapLovePoint
+/terms/agreement
+/tutorial/phaseEnd
+```
+
+and so on
+
+let's take a look at what references `/login/startup`
+
+```c
+undefined4 Startup$$get_Path(void)
+
+{
+  if (DAT_036ffcc5 == '\0') {
+                    /* WARNING: Subroutine does not return */
+    FUN_008722e4(0x92cd);
+  }
+  return login_startup;
+}
+```
+
+while looking through the Startup methods I notice that ghidra is actually
+failing to disassemble a lot of the code because it thinks some functions
+aren't returning. I should've disabled non-returning function discovery on
+the analysis settings. I'm going to re-run the analysis. this kind of thing
+should also be fixable by doing `func.setNoReturn(False)`
+
 to be continued...
