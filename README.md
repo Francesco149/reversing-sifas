@@ -537,4 +537,35 @@ aren't returning. I should've disabled non-returning function discovery on
 the analysis settings. I'm going to re-run the analysis. this kind of thing
 should also be fixable by doing `func.setNoReturn(False)`
 
+re-analyzing didn't fix, had to manually right click the flow override
+comments and set flow to default
+
+finally `StartupRequestBuilder$$Create` disassembles properly as well as
+many other similar functions that used to only be a Instantiate1 call
+
+```c
+void StartupRequestBuilder$$Create(undefined4 param_1,int param_2)
+
+{
+  undefined4 uVar1;
+  undefined4 uVar2;
+  
+  if (DAT_037021c9 == '\0') {
+                    /* WARNING: Subroutine does not return */
+    FUN_008722e4(0x92cb);
+  }
+  uVar1 = Clock$$get_TimeDifference(0);
+  uVar2 = Instantiate1(Class$DotUnder.Structure.StartupRequest);
+  StartupRequest$$.ctor(uVar2,param_1,StringLiteral_73,uVar1,0);
+  if (param_2 == 0) {
+    ThrowException(0);
+  }
+  FUN_023a2ee8(param_2,uVar2,Method$Action_StartupRequest_.Invoke());
+  return;
+}
+```
+
+I'm not sure how to automatically fixup this thing globally so for now I'm
+manually fixing the flow where needed
+
 to be continued...
