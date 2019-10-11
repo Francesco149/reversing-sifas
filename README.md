@@ -568,4 +568,71 @@ void StartupRequestBuilder$$Create(undefined4 param_1,int param_2)
 I'm not sure how to automatically fixup this thing globally so for now I'm
 manually fixing the flow where needed
 
+this also fixed the disassembly for the Serialization functions which
+now tell us exactly what fields the request should have
+
+```c
+int Serialization$$SerializeStartupRequest(int *param_1)
+
+{
+  /* ... */
+
+  iVar3 = StartupRequest$$get_Mask(param_1,0);
+  if (iVar3 != 0) {
+    if (bVar1) {
+      ThrowException(0);
+    }
+    uVar4 = StartupRequest$$get_Mask(param_1,0);
+    if (iVar2 == 0) {
+      ThrowException(0);
+    }
+    FUN_023742d0(iVar2,mask,uVar4,Method$Dictionary_string_-object_.set_Item());
+  }
+  if (bVar1) {
+    ThrowException(0);
+  }
+  iVar3 = StartupRequest$$get_ResemaraDetectionIdentifier(param_1,0);
+  if (iVar3 != 0) {
+    if (bVar1) {
+      ThrowException(0);
+    }
+    uVar4 = StartupRequest$$get_ResemaraDetectionIdentifier(param_1,0);
+    if (iVar2 == 0) {
+      ThrowException(0);
+    }
+    FUN_023742d0(iVar2,resemara_detection_identifier,uVar4,
+                 Method$Dictionary_string_-object_.set_Item());
+  }
+  if (bVar1) {
+    ThrowException(0);
+  }
+  uStack32 = StartupRequest$$get_TimeDifference(param_1,0);
+  uVar4 = FUN_008ae744(Class$int,&uStack32);
+  if (iVar2 == 0) {
+    ThrowException(0);
+  }
+  FUN_023742d0(iVar2,time_difference,uVar4,Method$Dictionary_string_-object_.set_Item());
+  return iVar2;
+}
+```
+
+the `FUN_023742d0` calls set request fields and the second argument is the
+field name
+
+this "resemara detection" is intriguing. after searching for resemara
+in the symbols table i found `AndroidPlatform$$LoadResemaraDetectionIdentifier`
+
+halfway into this function it passes the string "getResemaraDetectionId"
+to a function:
+
+```c
+  uVar5 = FUN_0149a010(piVar1,getResemaraDetectionId,piVar3,
+                       Method$AndroidJavaObject.CallStatic()_AndroidJavaObject_);
+```
+
+this is very familiar, it's calling into java code, and I imagine piVar1
+is a java context object of some sort.
+
+time to decompile the java side
+
 to be continued...
