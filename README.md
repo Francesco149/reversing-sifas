@@ -1223,4 +1223,225 @@ the request body is probably a json object
 now I want to look around HttpSubject to see if we can figure out what
 http headers it's using
 
+from a quick look at OnStart it appears that the parameter passed to it is
+a simple boolean to skip the CreateGuard call
+
+```c
+void HttpSubject$$OnStart(bool createGuardObject)
+
+{
+  if (DAT_037033fa == '\0') {
+    FUN_008722e4(0x4f22);
+    DAT_037033fa = '\x01';
+  }
+  if (createGuardObject != true) {
+    return;
+  }
+  if (((*(byte *)(Class$DotUnder.HttpSubject + 0xbf) & 2) != 0) &&
+     (*(int *)(Class$DotUnder.HttpSubject + 0x70) == 0)) {
+    FUN_0087fd40();
+  }
+  HttpSubject$$CreateGuardObject();
+  return;
+}
+```
+
+ok, after taking a look around the other HttpSubject methods it seems that
+this has more to do with displaying the loading screen than sending the
+request. let's look at ```Network$$PostJson``` instead
+
+```c
+void Network$$PostJson(Array *url,Array *json,undefined4 response)
+{
+  if (DAT_036ffb92 == '\0') {
+    FUN_008722e4(0x70b4);
+    DAT_036ffb92 = '\x01';
+  }
+  if (((*(byte *)(Class$DotUnder.NetworkAndroid + 0xbf) & 2) != 0) &&
+     (*(int *)(Class$DotUnder.NetworkAndroid + 0x70) == 0)) {
+    FUN_0087fd40();
+  }
+  NetworkAndroid$$PostJson(url,json,response);
+  return;
+}
+
+undefined4 NetworkAndroid$$PostJson(Array *url,Array *json,undefined4 response)
+
+{
+  int proxy;
+  undefined4 proxyAddress;
+  int proxyHasAddress;
+  int *params;
+  int iVar1;
+  undefined4 uVar2;
+  int proxyHost;
+  undefined4 uStack80;
+  undefined4 proxyPort;
+  undefined8 guid;
+  undefined8 uStack64;
+  undefined8 guid_;
+  undefined8 uStack48;
+
+  if (DAT_036ffb98 == '\0') {
+    FUN_008722e4(0x7097);
+    DAT_036ffb98 = '\x01';
+  }
+  guid_ = 0;
+  uStack48 = 0;
+  if (((*(byte *)(Class$DotUnder.NetworkAndroid + 0xbf) & 2) != 0) &&
+     (*(int *)(Class$DotUnder.NetworkAndroid + 0x70) == 0)) {
+    FUN_0087fd40();
+  }
+  NetworkAndroid$$Initialize();
+  proxyPort = 0;
+  proxy = Config$$get_Proxy(0);
+  if (proxy == 0) {
+    proxyHost = 0;
+  }
+  else {
+    proxyPort = 0;
+    proxyAddress = WebProxy$$get_Address(proxy,0);
+    if (((*(byte *)(Class$System.Uri + 0xbf) & 2) != 0) && (*(int *)(Class$System.Uri + 0x70) == 0))
+    {
+      FUN_0087fd40();
+    }
+    proxyHasAddress = Uri$$op_Inequality(proxyAddress,0,0);
+    proxyHost = 0;
+    if (proxyHasAddress == 1) {
+      proxyHost = WebProxy$$get_Address(proxy,0);
+      if (proxyHost == 0) {
+        ThrowException(0);
+      }
+      proxyHost = Uri$$get_Host(proxyHost,0);
+      proxy = WebProxy$$get_Address(proxy,0);
+      if (proxy == 0) {
+        ThrowException(0);
+      }
+      proxyPort = Uri$$get_Port(proxy,0);
+    }
+  }
+  if (((*(byte *)(Class$System.Guid + 0xbf) & 2) != 0) && (*(int *)(Class$System.Guid + 0x70) == 0))
+  {
+    FUN_0087fd40();
+  }
+  Guid$$NewGuid(&guid,0);
+  guid_ = guid;
+  uStack48 = uStack64;
+  proxy = Guid$$ToString(&guid_,0);
+  proxyAddress = Instantiate1(Class$Network.Connection);
+  Network.Connection$$.ctor(proxyAddress,proxy,response);
+  if (((*(byte *)(Class$DotUnder.NetworkAndroid + 0xbf) & 2) != 0) &&
+     (*(int *)(Class$DotUnder.NetworkAndroid + 0x70) == 0)) {
+    FUN_0087fd40();
+  }
+  proxyHasAddress = *(int *)(*(int *)(Class$DotUnder.NetworkAndroid + 0x5c) + 8);
+  if (proxyHasAddress == 0) {
+    ThrowException(0);
+  }
+  FUN_0237432c(proxyHasAddress,proxy,proxyAddress,
+               Method$Dictionary_string_-Network.Connection_.Add());
+  params = (int *)Instantiate(Class$object[],7);
+  proxyHasAddress = *(int *)(*(int *)(Class$DotUnder.NetworkAndroid + 0x5c) + 4);
+  if (params == (int *)0x0) {
+    ThrowException(0);
+  }
+  if ((proxyHasAddress != 0) &&
+     (iVar1 = FUN_008aea80(proxyHasAddress,*(undefined4 *)(*params + 0x20)), iVar1 == 0)) {
+    uVar2 = FUN_0089f30c();
+    ThrowSomeOtherException(uVar2,0,0);
+  }
+  if (params[3] == 0) {
+    uVar2 = FUN_0089ec04();
+    ThrowSomeOtherException(uVar2,0,0);
+  }
+  params[4] = proxyHasAddress;
+  if ((proxy != 0) &&
+     (proxyHasAddress = FUN_008aea80(proxy,*(undefined4 *)(*params + 0x20)), proxyHasAddress == 0))
+  {
+    uVar2 = FUN_0089f30c();
+    ThrowSomeOtherException(uVar2,0,0);
+  }
+  if ((uint)params[3] < 2) {
+    uVar2 = FUN_0089ec04();
+    ThrowSomeOtherException(uVar2,0,0);
+  }
+  params[5] = proxy;
+  if ((url != (Array *)0x0) &&
+     (proxy = FUN_008aea80(url,*(undefined4 *)(*params + 0x20)), proxy == 0)) {
+    uVar2 = FUN_0089f30c();
+    ThrowSomeOtherException(uVar2,0,0);
+  }
+  if ((uint)params[3] < 3) {
+    uVar2 = FUN_0089ec04();
+    ThrowSomeOtherException(uVar2,0,0);
+  }
+  *(Array **)(params + 6) = url;
+  if ((json != (Array *)0x0) &&
+     (proxy = FUN_008aea80(json,*(undefined4 *)(*params + 0x20)), proxy == 0)) {
+    uVar2 = FUN_0089f30c();
+    ThrowSomeOtherException(uVar2,0,0);
+  }
+  if ((uint)params[3] < 4) {
+    uVar2 = FUN_0089ec04();
+    ThrowSomeOtherException(uVar2,0,0);
+  }
+  *(Array **)(params + 7) = json;
+  if ((proxyHost != 0) &&
+     (proxy = FUN_008aea80(proxyHost,*(undefined4 *)(*params + 0x20)), proxy == 0)) {
+    uVar2 = FUN_0089f30c();
+    ThrowSomeOtherException(uVar2,0,0);
+  }
+  if ((uint)params[3] < 5) {
+    uVar2 = FUN_0089ec04();
+    ThrowSomeOtherException(uVar2,0,0);
+  }
+  params[8] = proxyHost;
+  proxy = FUN_008ae744(Class$int,&proxyPort);
+  if ((proxy != 0) &&
+     (proxyHost = FUN_008aea80(proxy,*(undefined4 *)(*params + 0x20)), proxyHost == 0)) {
+    uVar2 = FUN_0089f30c();
+    ThrowSomeOtherException(uVar2,0,0);
+  }
+  if ((uint)params[3] < 6) {
+    uVar2 = FUN_0089ec04();
+    ThrowSomeOtherException(uVar2,0,0);
+  }
+  params[9] = proxy;
+  uStack80 = 10;
+  proxy = FUN_008ae744(Class$int,&uStack80);
+  if ((proxy != 0) &&
+     (proxyHost = FUN_008aea80(proxy,*(undefined4 *)(*params + 0x20)), proxyHost == 0)) {
+    uVar2 = FUN_0089f30c();
+    ThrowSomeOtherException(uVar2,0,0);
+  }
+  if ((uint)params[3] < 7) {
+    uVar2 = FUN_0089ec04();
+    ThrowSomeOtherException(uVar2,0,0);
+  }
+  params[10] = proxy;
+  NetworkAndroid$$CallStaticOnMainThread("postJson",params);
+  return proxyAddress;
+}
+```
+
+this seems lengthy, but it's mainly because it's calling into java
+
+the first part checks if a proxy is set and extracts host and port. then it
+generates a guid and reuses the proxy temp vars for the stringified guid
+and the connection, which is a bit confusing. the only proxy information
+that is retained is proxyHost and proxyPort.
+
+the `Guid$$ToString` call wasn't originally named. i figured out what it
+was by googling strings used inside the function and finding it in
+microsoft's dotnet github repo
+
+it seems that network connections are identified by a guid. it's probably
+android stuff we don't care about
+
+next, an array of generic objects is created and all the info previously
+retrieved is packed into it. this data is then passed to java and postJson
+is called
+
+time to go back to java code
+
 to be continued...
