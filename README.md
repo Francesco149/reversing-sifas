@@ -1444,4 +1444,132 @@ is called
 
 time to go back to java code
 
+I think we're finally at the end of the chain for http requests, it's using
+OkHttp, an open source library, under the hood:
+
+```java
+void postJson(PostJson this,NetworkListener p1,String p2,String p3,byte[] p4,String p5,int p6,int p7
+             )
+
+{
+  OkHttpClient$Builder ref;
+  int iVar1;
+  MediaType contentType;
+  RequestBody pRVar2;
+  Request pRVar3;
+  Call ref_00;
+  OkHttpClient local_0;
+  Proxy ref_01;
+  Proxy$Type pPVar4;
+  SocketAddress ref_02;
+  Map ref_03;
+  Callback ref_04;
+  Request$Builder ref_05;
+  
+  local_0 = this.mHttpClient;
+  ref = local_0.newBuilder();
+  ref = ref.connectTimeout((long)p7 & -0x100000000 | ZEXT48(p7),TimeUnit.SECONDS);
+  ref = ref.readTimeout((long)p7,TimeUnit.SECONDS);
+  ref = ref.writeTimeout((long)p7,TimeUnit.SECONDS);
+  if ((p5 != null) && (iVar1 = p5.length(), 0 < iVar1)) {
+    pPVar4 = Proxy$Type.HTTP;
+    ref_02 = new SocketAddress(p5,p6);
+    ref_01 = new Proxy(pPVar4,ref_02);
+    ref = ref.proxy(ref_01);
+  }
+  local_0 = ref.build();
+  contentType = MediaType.parse("application/json");
+  pRVar2 = PostJsonRequestBody.create(contentType,p4);
+  ref_05 = new Request$Builder();
+  ref_05 = ref_05.url(p3);
+  ref_05 = ref_05.post(pRVar2);
+  pRVar3 = ref_05.build();
+  ref_00 = local_0.newCall(pRVar3);
+  ref_03 = this.mRequestList;
+  ref_03.put(p2,ref_00);
+  ref_04 = new Callback(this,p2,p1);
+  ref_00.enqueue(ref_04);
+  return;
+}
+```
+
+we can easily figure out that p4 is offset: https://github.com/square/okhttp/blob/c4f338ec172411975c9c0f05c7f48fc1b3dca715/okhttp/src/main/java/okhttp3/RequestBody.kt#L131
+
+from the part where it uses SocketAddress, which is documented [here](https://docs.oracle.com/javase/7/docs/api/java/net/InetSocketAddress.html)
+we can figure out that p5 and p6 are addr and port for the proxy
+
+in the last part it adds the request to a map called mRequestList. p2
+appears to be the string key that identifies this request
+
+then it enqueues the request with a custom callback. if we look at the
+PostJsonCallback constructor we have names for all the parameters:
+
+```
+void PostJson$PostJsonCallback
+               (PostJson$PostJsonCallback this,PostJson p1,String p2,NetworkListener p3)
+
+{
+  this.this$0 = p1;
+  this.<init>();
+  this.taskId = p2;
+  this.listener = p3;
+  return;
+}
+```
+
+this confirms that the map key is taskId
+
+here is postJson again, but now we've named everything:
+
+```java
+void postJson(PostJson this,NetworkListener listener,String taskId,String url,byte[] offset,
+             String proxyAddr,int proxyPort,int timeout)
+
+{
+  OkHttpClient$Builder clientBuilder;
+  int proxyAddrLen;
+  MediaType contentType;
+  RequestBody body;
+  Request request;
+  Call call;
+  OkHttpClient httpClient;
+  Proxy proxy;
+  Proxy$Type proxyType;
+  SocketAddress proxySocketAddress;
+  Map requests;
+  Callback callback;
+  Request$Builder requestBuilder;
+
+  httpClient = this.mHttpClient;
+  clientBuilder = httpClient.newBuilder();
+  clientBuilder =
+       clientBuilder.connectTimeout((long)timeout & -0x100000000 | ZEXT48(timeout),TimeUnit.SECONDS)
+  ;
+  clientBuilder = clientBuilder.readTimeout((long)timeout,TimeUnit.SECONDS);
+  clientBuilder = clientBuilder.writeTimeout((long)timeout,TimeUnit.SECONDS);
+  if ((proxyAddr != null) && (proxyAddrLen = proxyAddr.length(), 0 < proxyAddrLen)) {
+    proxyType = Proxy$Type.HTTP;
+    proxySocketAddress = new SocketAddress(proxyAddr,proxyPort);
+    proxy = new Proxy(proxyType,proxySocketAddress);
+    clientBuilder = clientBuilder.proxy(proxy);
+  }
+  httpClient = clientBuilder.build();
+  contentType = MediaType.parse("application/json");
+  body = PostJsonRequestBody.create(contentType,offset);
+  requestBuilder = new Request$Builder();
+  requestBuilder = requestBuilder.url(url);
+  requestBuilder = requestBuilder.post(body);
+  request = requestBuilder.build();
+  call = httpClient.newCall(request);
+  requests = this.mRequestList;
+  requests.put(taskId,call);
+  callback = new Callback(this,taskId,listener);
+  call.enqueue(callback);
+  return;
+}
+```
+
+so it seems that there aren't any particular headers we should be aware of.
+I guess everything is packed in the json object
+
 to be continued...
