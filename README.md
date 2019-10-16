@@ -635,4 +635,156 @@ is a java context object of some sort.
 
 time to decompile the java side
 
+for some reason dragging ```base.apk``` into my current ghidra project
+wasn't working (it wouldn't show classes.dex to decompile) so I created a
+new project and imported ```base.apk``` which correctly decompiled
+
+you will notice that there's strings defined with a scrambled version of
+each function name. this was also present in old SIF, I think it's just
+something that java does:
+
+```
+                             **************************************************************
+                             * 4ebf                                                       *
+                             *                                                            *
+                             * createResemaraDetectionId                                  *
+                             **************************************************************
+                             strings::createResemaraDetectionId              XREF[1]:     00013b6c(*)  
+        003a3fa2 19 63 72        string_d
+                 65 61 74 
+                 65 52 65 
+           003a3fa2 19              db[1]                             utf16_size                        XREF[1]:     00013b6c(*)  
+              003a3fa2 [0]            19h
+           003a3fa3 63 72 65 61 74  utf8      u8"cetRsmrDtcind"       data
+                    65 52 65 73 65 
+                    6d 61 72 61 44
+
+```
+
+it could be useful to look for calls to those particular functions in the
+native binary when they are obfuscated with this system.
+
+but let's get to the juicy bits, let's search for resemara in the symbols
+table and follow the code
+
+```java
+void ResemaraDetectionIdentifierRequest(ResemaraDetectionIdentifierRequest this,Listener p1)
+{
+  this.<init>();
+  this.mListener = p1;
+  return;
+}
+
+ResemaraDetectionIdentifierRequest getResemaraDetectionId(Listener p0)
+{
+  ResemaraDetectionIdentifierRequest local_0;
+  
+  local_0 = new ResemaraDetectionIdentifierRequest(p0);
+  local_0.createResemaraDetectionId();
+  return local_0;
+}
+
+void createResemaraDetectionId(ResemaraDetectionIdentifierRequest this)
+{
+  Thread local_0;
+  Runnable ref;
+
+  ref = new Runnable(this);
+  local_0 = new Thread(ref);
+  local_0.start();
+  return;
+}
+
+void run(ResemaraDetectionIdentifierRequest$1 this)
+{
+  Context ref;
+  AdvertisingIdClient$Info ref_00;
+  String pSVar1;
+  String pSVar2;
+  Activity local_0;
+  ResemaraDetectionIdentifierRequest pRVar3;
+  StringBuilder ref_01;
+
+  local_0 = UnityPlayer.currentActivity;
+  ref = local_0.getApplicationContext();
+  ref_00 = AdvertisingIdClient.getAdvertisingIdInfo(ref);
+  pSVar1 = ref_00.getId();
+  local_0 = UnityPlayer.currentActivity;
+  ref = local_0.getApplicationContext();
+  pSVar2 = ref.getPackageName();
+  pRVar3 = this.this$0;
+  ref_01 = new StringBuilder();
+  ref_01.append(pSVar1);
+  ref_01.append(pSVar2);
+  pSVar1 = ref_01.toString();
+  pSVar1 = ResemaraDetectionIdentifierRequest.access$000(pRVar3,pSVar1);
+  if (pSVar1 == "") {
+    ResemaraDetectionIdentifierRequest.access$100
+              (this.this$0,"",ResemaraDetectionIdResultKind.Failed);
+  }
+  else {
+    ResemaraDetectionIdentifierRequest.access$100
+              (this.this$0,pSVar1,ResemaraDetectionIdResultKind.Succeeded);
+  }
+  return;
+}
+
+String access$000(ResemaraDetectionIdentifierRequest p0,String p1)
+{
+  String pSVar1;
+
+  pSVar1 = p0.md5(p1);
+  return pSVar1;
+}
+
+void access$100(ResemaraDetectionIdentifierRequest p0,String p1,ResemaraDetectionIdResultKind p2)
+
+{
+  p0.sendMessage(p1,p2);
+  return;
+}
+
+void sendMessage(ResemaraDetectionIdentifierRequest this,String p1,ResemaraDetectionIdResultKind p2)
+{
+  int iVar1;
+  Listener ref;
+
+  if (this.mListener != null) {
+    ref = this.mListener;
+    iVar1 = p2.getKindInt();
+    ref.onReceived(p1,iVar1);
+  }
+  return;
+}
+
+String md5(ResemaraDetectionIdentifierRequest this,String p1)
+{
+  MessageDigest ref;
+  byte[] pbVar1;
+  String ref_00;
+  int iVar2;
+  BigInteger ref_01;
+  StringBuilder ref_02;
+
+  ref = MessageDigest.getInstance("MD5");
+  ref.reset();
+  pbVar1 = p1.getBytes("UTF-8");
+  ref.update(pbVar1);
+  pbVar1 = ref.digest();
+  ref_01 = new BigInteger(1,pbVar1);
+  ref_00 = ref_01.toString(0x10);
+  while (iVar2 = ref_00.length(), iVar2 < 0x20) {
+    ref_02 = new StringBuilder();
+    ref_02.append("0");
+    ref_02.append(ref_00);
+    ref_00 = ref_02.toString();
+  }
+  return ref_00;
+}
+```
+
+okay, so it's just cramming a bunch of info into a string which is then
+turned into a md5 hash and right-padded with zeros to 0x20 characters.
+shouldn't be too hard to emulate if needed
+
 to be continued...
