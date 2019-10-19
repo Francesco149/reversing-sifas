@@ -58,6 +58,9 @@ i0qzc6XbhFfAxjN2
 x\'B73DA9C0EE7116836995B5ACED4AA33B095ECAF77B33605833FD759E6E743F1D\'
 ```
 
+note: these values change with every update, they already changed as I
+wrote these notes, but they're pretty easy to find anyway.
+
 which I speculatively named ServerHost, ServerPassword and ServerKey
 
 the disassembly of that ServerConfig ctor reveals that they're using a
