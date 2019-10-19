@@ -1641,4 +1641,618 @@ base64
 we can also see that it's setting the initial SessionKey to the StartupKey
 which as seen earlier is `i0qzc6XbhFfAxjN2`
 
+this is a good time to try and MITM the http requests that are actually
+sent to see if we're right. we need root to bypass ssl pinning
+
+I used this guide to install magisk and hide root on android x86
+https://asdasd.page/2018/02/18/Install-Magisk-on-Android-x86/
+
+which consists of
+* copying kernel and ramdisk.img from the android partition to a linux
+  machine
+* `mkbootimg --kernel kernel --ramdisk ramdisk.img --output boot.img`
+* copy boot.img back to android device
+  `sudo cp boot.img /mnt/ssd/android-8.1-r2/data/media/0/Download/`
+* patch boot.img with MagiskManager
+* copy patched_boot.img back to linux
+  `sudo cp /mnt/ssd/android-8.1-r2/data/media/0/Download/magisk_patched.img .`
+* `abootimg -x magisk_patched.img`
+* rename zImage to kernel and overwrite the one in android partition
+* Rename initrd.img to ramdisk.img and overwrite in android partition
+
+now magisk should be installed. enable magisk hide from the settings and
+then from the magisk hide menu, toggle it on for love live
+
+at this point i was planning to install riru and edxposed to then use
+trustmealready to disable ssl pinning and be able to use a mitm proxy
+
+unfortunately magisk was failing to mount some stuff and modules weren't
+working. at least root is working and it's hidden from the game. we
+can work with this. I could try the same thing i did with old sif which
+was to write a library to inject and hook game functions to log requests
+
+so the first thing i look for is a simple library with few exports that is
+loaded after the game. `libKLab.NativeInput.Native.so` looks like a good
+candidate. it looks like it's called from java and exports a handful of
+`Java_com_klab*` functions which are probably the only ones we would need
+to export to replace it.
+
+the idea is, you replace the library, export the same functions, and under
+the hood you load the original library and forward all calls to it while
+you inject your own initialization into a function of your choice
+
+the injected code in this case would hook MakeRequestData, redirecting it
+to a function that calls the real MakeRequestData and prints the json
+object to android's logcat
+
+to avoid generating repetitive dlopen/dlsym code for each export which
+would just make the binary larger for no good reason, I define the exports
+to be just placeholder jmp's at compile time, then at runtime it goes
+through the list of functions and replaces the placeholder jmps with jmps
+to the original library
+
+as a first test, I just make the stub library do absolutely nothing, just
+to see if it works
+
+we must also decide where to initialize our stub library. onInitialize
+seems like a good candidate, as we can see from the disassembly it takes
+a single param:
+
+```c
+void Java_com_klab_nativeinput_NativeInputJava_onInitialize(JNIEnv *env)
+
+{
+  jclass p_Var1;
+  
+  if (env != (JNIEnv *)0x0) {
+    sJEnv = env;
+    p_Var1 = (*env->functions->FindClass)(env,"com/klab/nativeinput/NativeInputJava");
+    sJClass = (jclass)(*env->functions->NewGlobalRef)(env,(jobject)p_Var1);
+                    /* WARNING: Could not recover jumptable at 0x00015ac2. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+    (*sJEnv->functions->GetStaticMethodID)(sJEnv,sJClass,"NativeInputGetTimestamp","()D");
+    return;
+  }
+  return;
+}
+```
+
+so here's my hello world lib:
+
+```c
+#include <android/log.h>
+#include <dlfcn.h>
+#include <sys/mman.h>
+#include <sys/sysconf.h>
+
+#define log(x) __android_log_write(ANDROID_LOG_DEBUG, __FILE__, x);
+
+#define java_func(func) \
+    Java_com_klab_nativeinput_NativeInputJava_##func
+
+#define exports(macro) \
+  macro(java_func(clearTouch)) \
+  macro(java_func(lock)) \
+  macro(java_func(onFinalize)) \
+  macro(java_func(stockDeviceButtons)) \
+  macro(java_func(stockNativeTouch)) \
+  macro(java_func(testOverrideFlgs)) \
+  macro(java_func(unlock)) \
+
+/*
+  I decided to go with absolute jmp's. since arm doesn't allow 32-bit
+  immediate jumps I have to place the address right after the jmp and
+  reference it using [pc,#-4]. pc is 8 bytes after the current instruction,
+  so #-4 reads 4 bytes after the current instruction.
+  0xBAADF00D is then replaced by the correct address at runtime
+*/
+
+#define define_trampoline(name) \
+void __attribute__((naked)) name() { \
+    asm("ldr pc,[pc,#-4]"); \
+    asm(".word 0xBAADF00D"); \
+}
+
+/* runs define_trampoline on all functions listed in exports */
+exports(define_trampoline)
+
+#define stringify_(x) #x
+#define stringify(x) stringify_(x)
+#define to_string_array(x) stringify(x),
+static char* export_names[] = { exports(to_string_array) 0 };
+
+void (*_onInitialize)(void* env);
+
+/*
+  make memory readadable, writable and executable. size is
+  ceiled to a multiple of PAGESIZE and addr is aligned to
+  PAGESIZE
+*/
+#define PROT_RWX (PROT_READ | PROT_WRITE | PROT_EXEC)
+#define PAGESIZE sysconf(_SC_PAGESIZE)
+#define PAGEOF(addr) (void*)((int)(addr) & ~(PAGESIZE - 1))
+#define PAGE_ROUND_UP(x) \
+    ((((int)(x)) + PAGESIZE - 1) & (~(PAGESIZE - 1)))
+#define munprotect(addr, n) \
+    mprotect(PAGEOF(addr), PAGE_ROUND_UP(n), PROT_RWX)
+
+static
+void init() {
+  char** s;
+  void *original, *stub;
+  log("hello from the stub library!");
+  original = dlopen("libKLab.NativeInput.Native.so.bak", RTLD_LAZY);
+  stub = dlopen("libKLab.NativeInput.Native.so", RTLD_LAZY);
+  for (s = export_names; *s; ++s) {
+    void** stub_func = dlsym(stub, *s);
+    log(*s);
+    munprotect(&stub_func[1], sizeof(void*));
+    stub_func[1] = dlsym(original, *s);
+  }
+  *(void**)&_onInitialize =
+    dlsym(original, stringify(java_func(onInitialize)));
+}
+
+void java_func(onInitialize)(void* env) {
+  init();
+  _onInitialize(env);
+}
+```
+
+I build it with this script:
+
+```sh
+#!/bin/sh
+
+CFLAGS="-fPIC -Wall $CFLAGS"
+LDFLAGS="-shared -llog -ldl $LDFLAGS"
+[ -z "$CC" ] &&
+  echo "please set CC to your android toolchain compiler" && exit 1
+$CC $CFLAGS sniffas.c $LDFLAGS -o libKLab.NativeInput.Native.so
+```
+
+remember to download the android standalone toolchain and point CC to it
+
+```sh
+export CC=~/android-ndk-r20/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang
+./build.sh
+```
+
+then i copy it to android and replace the original library, making sure
+to keep permissions
+
+```sh
+adb root
+adb push libKLab.NativeInput.Native.so /data/app/
+adb shell
+
+cd /data/app/com.klab.lovelive.allstars-*/lib/arm/
+mv libKLab.NativeInput.Native.so{,.bak}
+mv /data/app/libKLab.NativeInput.Native.so .
+chmod 755 libKLab.NativeInput.Native.so
+chown system:system libKLab.NativeInput.Native.so
+exit
+```
+
+and sure enough, if we start the game and look at logcat we see:
+
+```
+10-18 21:57:03.260 21620 21645 D sniffas.c: hello from the stub library!
+10-18 21:57:03.260 21620 21645 D sniffas.c: Java_com_klab_nativeinput_NativeInputJava_clearTouch
+10-18 21:57:03.260 21620 21645 D sniffas.c: Java_com_klab_nativeinput_NativeInputJava_lock
+10-18 21:57:03.260 21620 21645 D sniffas.c: Java_com_klab_nativeinput_NativeInputJava_onFinalize
+10-18 21:57:03.260 21620 21645 D sniffas.c: Java_com_klab_nativeinput_NativeInputJava_stockDeviceButtons
+10-18 21:57:03.260 21620 21645 D sniffas.c: Java_com_klab_nativeinput_NativeInputJava_stockNativeTouch
+10-18 21:57:03.261 21620 21645 D sniffas.c: Java_com_klab_nativeinput_NativeInputJava_testOverrideFlgs
+10-18 21:57:03.261 21620 21645 D sniffas.c: Java_com_klab_nativeinput_NativeInputJava_unlock
+```
+
+and the game runs just fine
+
+let's try to hook MakeRequestData now
+
+first of all we need to know its relative address in memory, from where
+il2cpp stars. just hover over the address in ghidra, you want the
+"Imagebase Offset"
+
+to get the address of the function in memory we can just add this offset
+to the base address of il2cpp.so which we can obtain with `dladdr` and a
+known export. I picked one at random from ghidra's list of exports
+
+```c
+  il2cpp = dlopen("libil2cpp.so", RTLD_LAZY);
+  il2cpp_export = dlsym(il2cpp, "UnityAdsEngineInitialize");
+  dladdr(il2cpp_export, &dli);
+  sprintf(buf, "il2cpp at %p", dli.dli_fbase);
+  log(buf);
+```
+
+you can go all fancy and dynamically search for the function's byte pattern
+but for now I'm just gonna hardcode the address
+
+let's print the first 8 bytes at MakeRequestData to check that we are
+indeed getting the right address
+
+```c
+  /* log first 8 bytes at MakeRequestData to check that we got it right */
+  p = buf;
+  MakeRequestData = (char*)dli.dli_fbase + 0xEFCDDC;
+  p += sprintf(p, "MakeRequestData at %p: ", MakeRequestData);
+  for (i = 0; i < 8; ++i) {
+    p += sprintf(p, "%02x ", MakeRequestData[i]);
+  }
+  log(buf);
+```
+
+sure enough, we get:
+
+```
+10-19 01:31:26.569 28198 28223 D sniffas.c: il2cpp at 0x8000000
+10-19 01:31:26.569 28198 28223 D sniffas.c: MakeRequestData at 0x8efcddc: f0 48 2d e9 10 b0 8d e2 
+```
+
+which matches ghidra:
+
+```
+                             **************************************************************
+                             *                          FUNCTION                          *
+                             **************************************************************
+                             undefined DMHttpApi$$MakeRequestData()
+             undefined         r0:1           <RETURN>
+                             DMHttpApi$$MakeRequestData                      XREF[2]:     DMHttpApi$$Call:00f0cab0(c), 
+                                                                                          034637e4(*)  
+        00f0cddc f0 48 2d e9     stmdb      sp!,{ r4 r5 r6 r7 r11 lr }
+        00f0cde0 10 b0 8d e2     add        r11,sp,#0x10
+```
+
+okay, let's define our hook function and a global function pointer we will
+use to call the original function
+
+```c
+static void* (*original_MakeRequestData)(void* pathWithQuery, void* body);
+
+static
+void* hooked_MakeRequestData(void* pathWithQuery, void* body) {
+  log("hello from MakeRequestData!");
+  return original_MakeRequestData(pathWithQuery, body);
+}
+```
+
+so, what exactly do we need to do to hook this function? it's actually
+really simple. we overwrite the function's code with a jump to our own
+function
+
+the only tricky part is calling the original function, which we just
+overwrote. the solution I use is to copy the original code somewhere else
+and slap a jump that goes back to the original function, right after the
+jump we wrote. some people call this a "trampoline".
+
+to explain this more visually, this is how the code looks like before
+hooking
+
+```asm
+MakeRequestData:
+  stmdb      sp!,{ r4 r5 r6 r7 r11 lr }
+  add        r11,sp,#0x10
+  sub        sp,sp,#0x8
+  cpy        r5,r0
+  ...
+```
+
+ after hooking
+
+```asm
+original_MakeRequestData:
+  stmdb      sp!,{ r4 r5 r6 r7 r11 lr }
+  add        r11,sp,#0x10
+  jmp MakeRequestData_continue
+
+MakeRequestData:
+  jmp hooked_MakeRequestData
+MakeRequestData_continue:
+  sub        sp,sp,#0x8
+  cpy        r5,r0
+  ...
+```
+
+the actual jump is not gonna look like that though, in ARM we need to do
+a weird absolute jump you've seen in my initial stub library code
+
+so let's implement this hook!
+
+here's where I generate the trampoline
+
+```c
+  *(void**)&original_MakeRequestData = malloc(8 + 8);
+  code = (unsigned*)original_MakeRequestData;
+  munprotect(code, 8);
+  memcpy(code, MakeRequestData, 8);
+  code[2] = 0xE51FF004; /* ldr pc,[pc,#-4] */
+  code[3] = (unsigned)MakeRequestData + 8;
+```
+
+and here's where I overwrite the original function's code
+
+```c
+  code = (unsigned*)MakeRequestData;
+  munprotect(code, 8);
+  code[0] = 0xE51FF004; /* ldr pc,[pc,#-4] */
+  code[1] = (unsigned)hooked_MakeRequestData;
+```
+
+if we run this and check logcat after tapping the main menu and logging
+into the game, we get:
+
+```
+10-19 01:52:19.220 28588 28613 D sniffas.c: hello from the stub library!
+10-19 01:52:19.220 28588 28613 D sniffas.c: Java_com_klab_nativeinput_NativeInputJava_clearTouch
+10-19 01:52:19.220 28588 28613 D sniffas.c: Java_com_klab_nativeinput_NativeInputJava_lock
+10-19 01:52:19.221 28588 28613 D sniffas.c: Java_com_klab_nativeinput_NativeInputJava_onFinalize
+10-19 01:52:19.221 28588 28613 D sniffas.c: Java_com_klab_nativeinput_NativeInputJava_stockDeviceButtons
+10-19 01:52:19.221 28588 28613 D sniffas.c: Java_com_klab_nativeinput_NativeInputJava_stockNativeTouch
+10-19 01:52:19.221 28588 28613 D sniffas.c: Java_com_klab_nativeinput_NativeInputJava_testOverrideFlgs
+10-19 01:52:19.221 28588 28613 D sniffas.c: Java_com_klab_nativeinput_NativeInputJava_unlock
+10-19 01:52:19.222 28588 28613 D sniffas.c: il2cpp at 0x8000000
+10-19 01:52:19.222 28588 28613 D sniffas.c: MakeRequestData at 0x8efcddc: f0 48 2d e9 10 b0 8d e2 
+10-19 01:52:40.523 28588 28613 D sniffas.c: hello from MakeRequestData!
+10-19 01:52:42.410 28588 28613 D sniffas.c: hello from MakeRequestData!
+10-19 01:52:47.239 28588 28613 D sniffas.c: hello from MakeRequestData!
+```
+
+the hard part is done! now we can simply log the request data. we already
+know the key field offsets for C#'s Array struct
+
+```c
+typedef struct {
+  char unknown[12];
+  int Length;
+  char data[1]; /* actually Length bytes */
+} Array;
+
+static
+void Array_log_ascii(Array* arr) {
+  char* buf = malloc(arr->Length + 1);
+  memcpy(buf, arr->Data, arr->Length);
+  buf[arr->Length] = 0;
+  log(buf);
+  free(buf);
+}
+```
+
+however, pathWithQuery is most likely a String. let's reverse engineer the
+String layout real quick. from String$$Copy we can instantly tell Length
+is at offset 0x8 and data is at 0xC
+
+```c
+int String$$Copy(int param_1)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  int iVar3;
+  
+  if (DAT_037078b1 == '\0') {
+    FUN_008722e4(0x94b7);
+    DAT_037078b1 = '\x01';
+  }
+  if (param_1 != 0) {
+    iVar3 = *(int *)(param_1 + 8);
+    iVar1 = thunk_FUN_008c05c4(iVar3);
+    if (iVar1 == 0) {
+      ThrowException(0);
+    }
+    Buffer$$Memcpy(iVar1 + 0xc,param_1 + 0xc,iVar3 << 1,0);
+    return iVar1;
+  }
+  uVar2 = Instantiate1(Class$System.ArgumentNullException);
+  ArgumentNullException$$.ctor(uVar2,"str",0);
+  ThrowSomeOtherException(uVar2,0,Method$String.Copy());
+  uVar2 = caseD_15();
+  return uVar2;
+}
+```
+
+here's our String struct
+
+```c
+typedef struct {
+  char unknown[8];
+  int Length;
+  char data[1]; /* actually Length bytes */
+} String;
+```
+
+we have another problem though, the default encoding for strings in .net
+is UTF16LE. I'm just gonna truncate it to ascii for now and change data
+to an array of unsigned short's
+
+```c
+typedef struct {
+  char unknown[8];
+  int Length;
+  unsigned short Data[1];
+} String;
+
+/* truncate to ascii. good enough for now */
+static
+void String_log(String* str) {
+  int i;
+  char* buf = malloc(str->Length + 1);
+  for (i = 0; i < str->Length; ++i) {
+    buf[i] = (char)str->Data[i];
+  }
+  buf[str->Length] = 0;
+  log(buf);
+  free(buf);
+}
+```
+
+update hook to log the requests:
+
+```c
+static
+Array* (*original_MakeRequestData)(String* pathWithQuery, Array* body);
+
+static
+Array* hooked_MakeRequestData(String* pathWithQuery, Array* body) {
+  Array* res;
+  String_log(pathWithQuery);
+  res = original_MakeRequestData(pathWithQuery, body);
+  Array_log_ascii(res);
+  return res;
+}
+```
+
+let's start the game, tap the main screen, and...
+
+```
+10-19 02:50:00.968 31593 31618 D sniffas.c: hello from the stub library!
+10-19 02:50:00.968 31593 31618 D sniffas.c: Java_com_klab_nativeinput_NativeInputJava_clearTouch
+10-19 02:50:00.968 31593 31618 D sniffas.c: Java_com_klab_nativeinput_NativeInputJava_lock
+10-19 02:50:00.969 31593 31618 D sniffas.c: Java_com_klab_nativeinput_NativeInputJava_onFinalize
+10-19 02:50:00.969 31593 31618 D sniffas.c: Java_com_klab_nativeinput_NativeInputJava_stockDeviceButtons
+10-19 02:50:00.969 31593 31618 D sniffas.c: Java_com_klab_nativeinput_NativeInputJava_stockNativeTouch
+10-19 02:50:00.969 31593 31618 D sniffas.c: Java_com_klab_nativeinput_NativeInputJava_testOverrideFlgs
+10-19 02:50:00.969 31593 31618 D sniffas.c: Java_com_klab_nativeinput_NativeInputJava_unlock
+10-19 02:50:00.969 31593 31618 D sniffas.c: il2cpp at 0x8000000
+10-19 02:50:00.969 31593 31618 D sniffas.c: MakeRequestData at 0x8efcddc: f0 48 2d e9 10 b0 8d e2 
+10-19 02:50:21.240 31593 31618 D sniffas.c: /login/login?p=a&id=1&u=CENSORED_USER_ID
+10-19 02:50:21.241 31593 31618 D sniffas.c: [{"user_id":CENSORED_USER_ID,"auth_count":CENSORED_AUTH_COUNT,"mask":"CENSORED_MASK","asset_state":"CENSORED_ASSET_STATE"},"CENSORED_HASH"]
+10-19 02:50:22.850 31593 31618 D sniffas.c: /bootstrap/fetchBootstrap?p=a&mv=CENSORED_MV&id=2&u=CENSORED_USER_ID&t=CENSORED_TIME_1
+10-19 02:50:22.850 31593 31618 D sniffas.c: [{"bootstrap_fetch_types":[2,3,4,5,9,10],"device_token":"CENSORED_DEVICE_TOKEN","device_name":"Censored device name"},"CENSORD_HASH_2"]
+10-19 02:50:27.047 31593 31618 D sniffas.c: /notice/fetchNotice?p=a&mv=CENSORED_MV&id=3&u=CENSORED_USER_ID&t=CENSORED_TIME_2
+10-19 02:50:27.047 31593 31618 D sniffas.c: [null,"CENSORED_HASH"]
+```
+
+hell yeah. I had to censor pretty much everything in the data but you get
+the idea. it's how we predicted it
+
+hooking MakeRequestData might've been a mistake though, we can't log the
+response like this. let's hook `Network$$PostJson` instead. it has all
+the same info we're logging now, plus the response.
+
+this is where it constructs the response in CallMain
+
+```c
+  response = Instantiate1(Class$Action_Network.Response_);
+  FUN_023a2ed4(response,displayClass20,Method$DMHttpApi.__c__DisplayClass20_0._CallMain_b__1(),
+               Method$Action_Network.Response_..ctor());
+  displayClass20 = Network$$PostJson(url,json,response);
+```
+
+a quick search for Network.Response yields the following fields
+
+```c
+undefined4 Network.Response$$get_Status(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 8);
+}
+
+undefined4 Network.Response$$get_Bytes(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 0xc);
+}
+
+uint Network.Response$$get_IsTimeout(int param_1)
+
+{
+  return (uint)*(byte *)(param_1 + 0x10);
+}
+
+uint Network.Response$$get_IsNetworkError(int param_1)
+
+{
+  return (uint)*(byte *)(param_1 + 0x11);
+}
+
+undefined4 Network.Response$$get_ErrorMessage(int param_1)
+
+{
+  return *(undefined4 *)(param_1 + 0x14);
+}
+
+```
+
+I wasn't sure about the Bytes type so I looked around some more, found
+this in postJsonCallback
+
+```c
+    uVar2 = AndroidJavaObject$$GetRawObject(piVar1,0);
+    uVar2 = AndroidJNIHelper$$ConvertFromJNIArray
+                      (uVar2,Method$AndroidJNIHelper.ConvertFromJNIArray()_byte[]_);
+...
+    iVar3 = Instantiate1(Class$Network.Response);
+    Object$$.ctor(iVar3,0);
+    *(undefined4 *)(iVar3 + 8) = param_3;
+    *(undefined4 *)(iVar3 + 0xc) = uVar2;
+    *(undefined *)(iVar3 + 0x11) = param_6;
+    *(undefined *)(iVar3 + 0x10) = param_5;
+    *(undefined4 *)(iVar3 + 0x14) = param_7;
+```
+
+it should be an array of bytes
+
+now the tricky part is, it's actually receiving `Action<Network.Response>`,
+not just the struct. this means that somewhere down the line, this action
+gets invoked and the Response object we want is created
+
+yeah, I guess we won't be able to log the response from here. we'll need
+another hook
+
+let's hook `Network.Response$$get_Bytes`. something is bound to call it
+when a response is received
+
+these are the hooks I ended up with
+
+```c
+typedef struct {
+  char unknown[8];
+  int Status;
+  Array* Bytes;
+  char isTimeout;
+  char isNetworkError;
+  String* ErrorMessage;
+} Response;
+
+static
+void (*original_PostJson)(String* url, Array* body, void* delegate,
+  void* unk);
+
+static
+void hooked_PostJson(String* url, Array* body, void* delegate, void* unk) {
+  String_log(url);
+  Array_log_ascii(body);
+  original_PostJson(url, body, delegate, unk);
+}
+
+static
+Array* (*original_get_Bytes)(Response* resp);
+
+static
+Array* hooked_get_Bytes(Response* resp) {
+  char buf[512];
+  sprintf(buf, "[%p] %p", __builtin_return_address(0), resp);
+  log(buf);
+  Array_log_ascii(resp->Bytes);
+  return original_get_Bytes(resp);
+}
+```
+
+and if we run now, we get:
+
+![snifas logging requests](pic.png)
+
+amazing! now we can see all traffic
+
+you can check out the full stub library source code [here](https://github.com/Francesco149/sniffas)
+
+some people would have used a mitm http proxy here, however the game is
+very picky about it and most likely is ssl pinning, so this is much easier
+for me and lets me log other info too
+
+let's try to put this all together and craft a startup request and see
+what the server thinks of it.
+
 to be continued...
