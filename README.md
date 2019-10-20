@@ -2253,9 +2253,220 @@ you can check out the full stub library source code [here](https://github.com/Fr
 
 some people would have used a mitm http proxy here, however the game is
 very picky about it and most likely is ssl pinning, so this is much easier
-for me and lets me log other info too
+for me and lets me log other info too, for example i can log where any
+given function is called from, even with complicated indirect calls. you
+just have to format and log `__builtin_return_address(0)` from the hook
 
 let's try to put this all together and craft a startup request and see
 what the server thinks of it.
+
+first of all, this is how you reset your linked account and force the game
+to create a new one. this is the equivalent of what is described here
+https://www.reddit.com/r/SchoolIdolFestival/comments/da5g2x/how_to_reroll_sifas_without_deleting_the_whole/f1pe67m/
+except it's all automatic
+
+```sh
+mv /data/data/com.klab.lovelive.allstars{,.bak}
+pm clear com.klab.lovelive.allstars
+mv /data/data/com.klab.lovelive.allstars{.bak,}
+```
+
+from the requests log it seems like it first prompts you to log with
+a google id and then calls `/dataLink/fetchGameServiceDataBeforeLogin`
+which either returns already linked data for that account or null, in
+which case the game proceeds with the startup request to create a new
+account, but I think we can bypass that
+
+looking at `BaseRule1$$SendMain` i notice that the mv parameter in the
+query string is actually referred to as MasterVersion, in the disassembly,
+we will hardcode it for now
+
+the code that generates the time_difference field is confusing, not sure
+why it creates a 2017-01-01 date, but from the logs it seems to be 3600
+for me so I'm guessing it's the offset from utc or something. I'll just
+hardcode it for now
+
+I decided to first do a quick test in kotlin using the same
+OkHttp library to be as close as possible to the game
+
+I ran into a stupid issue that had me banging my head on my keyboard for
+an entire day - the server bails out with a 500 error if your
+`content-type` is `application/json; charset=utf-8` instead of just
+`application/json` . OkHttp automatically adds the charset if you call
+`toRequestBody`
+
+this is the code I ended up with, way more elaborate than it needs to for
+this simple test, but you have to keep in mind I was troubleshooting this
+with different requests all day
+
+for PublicEncrypt we want OAEP padding because the bool passed to
+`RSACryptoServiceProvider$$Encrypt` is true (check the msdn docs)
+
+since java and kotlin can't handle .net xml keys i converted it to PEM
+using this tool
+https://gist.github.com/Francesco149/8c6288a853dd010a638892be2a2c48af
+
+OAEP padding is randomized so don't worry if the encrypted data looks
+different for the same input
+
+for md5 i pretty much copied the game's code 1:1 even though it's
+unnecessary to go through BigInteger
+
+for the resemara detection id I generated a random uuid instead of using
+a real google advertising id and hashed it with the package name as the
+game does. the server happily accepted it. a random md5 hash would
+probably work too
+
+I'm not sure yet what the mask field even does since it's random bytes,
+maybe it's just there so the server can verify the signature
+
+```kotlin
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.security.*
+import java.security.spec.X509EncodedKeySpec
+import javax.crypto.Cipher
+import javax.crypto.spec.SecretKeySpec
+import javax.crypto.Mac
+import java.util.Base64
+import java.util.UUID
+import java.math.BigInteger
+import kotlin.random.Random
+
+const val ServerEndpoint = "https://jp-real-prod-v4tadlicuqeeumke.api.game25.klabgames.net/ep1010"
+const val StartupKey = "G5OdK4KdQO5UM2nL"
+const val RSAPublicKey = """-----BEGIN PUBLIC KEY-----
+MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC/ZUSWq8LCuF2JclEp6uuW9+yddLQvb2420+F8
+rxIF8+W53BiF8g9m6nCETdRw7RVnzNABevMndCCTD6oQ6a2w0QpoKeT26578UCWtGp74NGg2Q2fH
+YFMAhTytVk48qO4ViCN3snFs0AURU06niM98MIcEUnj9vj6kOBlOGv4JWQIDAQAB
+-----END PUBLIC KEY-----"""
+const val PackageName = "com.klab.lovelive.allstars"
+const val MasterVersion = "646e6e305660c69f"
+
+fun md5(str: String): String {
+  val digest = MessageDigest.getInstance("MD5")
+  digest.reset()
+  digest.update(str.toByteArray())
+  val hash = digest.digest();
+  return BigInteger(1, hash).toString(16).padStart(32, '0')
+}
+
+fun publicEncrypt(key: PublicKey, data: ByteArray): ByteArray {
+  val cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA1AndMGF1Padding");
+  cipher.init(Cipher.ENCRYPT_MODE, key);
+  return cipher.doFinal(data);
+}
+
+fun ByteArray.toHexString() = joinToString("") { "%02x".format(it) }
+
+fun hmacSha1(key: ByteArray, data: ByteArray): String {
+  val hmacKey = SecretKeySpec(key, "HmacSHA1")
+  val hmac = Mac.getInstance("HmacSHA1")
+  hmac.init(hmacKey)
+  return hmac.doFinal(data).toHexString()
+}
+
+var requestId = 0;
+var sessionKey = StartupKey;
+
+fun call(path: String, payloadJson: String, mv: Boolean, t: Boolean,
+  u: Int = 0)
+{
+  requestId = requestId + 1;
+  var pathWithQuery = path + "?p=a";
+  if (mv) {
+    pathWithQuery += "&mv=$MasterVersion"
+  }
+  pathWithQuery += "&id=$requestId"
+  if (u != 0) {
+    pathWithQuery += "&u=$u"
+  }
+  if (t) {
+    val millitime = System.currentTimeMillis()
+    pathWithQuery += "&t=$millitime"
+  }
+  println(pathWithQuery);
+  val hashData = pathWithQuery + " " + payloadJson
+  val hash = hmacSha1(sessionKey.toByteArray(), hashData.toByteArray())
+  val json = """[$payloadJson,"$hash"]"""
+  println(json)
+  val client = OkHttpClient()
+  val request = Request.Builder()
+    .url("$ServerEndpoint$pathWithQuery")
+    .post(json.toByteArray()
+      .toRequestBody("application/json".toMediaType()))
+    .build()
+  client.newCall(request).execute().use { response ->
+    if (!response.isSuccessful) {
+      println("unexpected code $response")
+    }
+    for ((name, value) in response.headers) {
+      println("$name: $value")
+    }
+    println(response.body!!.string())
+  }
+}
+
+fun main(args: Array<String>) {
+  val kf = KeyFactory.getInstance("RSA");
+  val keyBytes = Base64.getDecoder().decode(
+    RSAPublicKey
+      .replace("-----BEGIN PUBLIC KEY-----", "")
+      .replace("-----END PUBLIC KEY-----", "")
+      .replace("\\s+".toRegex(),"")
+  )
+  val keySpecX509 = X509EncodedKeySpec(keyBytes)
+  val pubKey = kf.generatePublic(keySpecX509)
+  val base64 = Base64.getEncoder()
+  val advertisingId = UUID.randomUUID().toString()
+  val resemara = md5(advertisingId + PackageName)
+  val randomBytes = Random.nextBytes(32)
+  val maskBytes = publicEncrypt(pubKey, randomBytes)
+  val mask = base64.encodeToString(maskBytes)
+  val payloadJson = """{"mask":"$mask","resemara_detection_identifier":"$resemara","time_difference":3600}"""
+  call("/login/startup", payloadJson, true, true);
+}
+```
+
+and here's the script I use on linux to build and run it:
+https://gist.github.com/636d7efeff523b152a3039758d3ea9f6
+
+note: you need kotlin 1.3.41 or higher to build and run with my script
+
+if we run it, we get:
+
+```
+# checking dependencies
+[ok] okhttp-4.2.2.jar
+[ok] okio-2.2.2.jar
+
+# compiling
+
+# running
+/login/startup?p=a&mv=646e6e305660c69f&id=1&t=CENSORED_TIME
+[{"mask":"CENSORED","resemara_detection_identifier":"CENSORED","time_difference":3600},"CENSORED_HASH"]
+Content-Type: application/json
+Transfer-Encoding: chunked
+Connection: keep-alive
+Server: nginx
+Date: CENSORED
+Vary: Accept-Encoding
+X-Cache: Miss from cloudfront
+Via: 1.1 CENSORED.cloudfront.net (CloudFront)
+X-Amz-Cf-Pop: CENSORED
+X-Amz-Cf-Id: CENSORED
+[CENSORED_TIME,"646e6e305660c69f",0,{"user_id":CENSORED,"authorization_key":"CENSORED"},"CENSORED_HASH"]
+```
+
+here's also a python version I wrote while I was troubleshooting
+https://gist.github.com/e801c077ad2e3e9f82f2da8233735707
+
+so there you have it! we made our first communication with the server
+successfully. this is just the beginning though, we have all the more
+convoluted session key xoring ahead of us as well as some seemingly
+obfuscated fields like asset_state which is generated by
+`_KJACore_AssetStateLogGenerateV2` in `libjackpot-core.so`
 
 to be continued...
