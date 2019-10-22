@@ -3129,4 +3129,221 @@ here it appends tmp3 to the base directory of libjackpot-core.so
 i think this is a good point to take a break and either hook or implement
 this first part of the function to see what the tmp strings are
 
+after looking around for a bit, I think we can hook the very next function
+that's called. it reads the given file computes one of three hashes: md5,
+sha-1 or sha-256 depending on the parameter passed in, which in this case
+in `base64randombytes[1] & 3`
+
+```c
+    if ((first_char & 1) == 0) {
+      conditional_hash(&libjackpot_hash,&path_to_libjackpot,second_char_mod_3);
+      conditional_hash(&tmp3_hash,&tmp3_path,second_char_mod_3);
+```
+
+here's what the hashing function looks like
+
+```c
+char ** conditional_hash(char **pphash,std__string *path,int type)
+
+{
+  if (type == 0) {
+    md5(pphash,path);
+  }
+  else {
+    if (type == 1) {
+      sha1(pphash,(char *)path);
+    }
+    else {
+      if (type == 2) {
+        sha256(pphash,path);
+      }
+      else {
+        *pphash = (char *)0x0;
+        pphash[1] = (char *)0x0;
+      }
+    }
+  }
+  return pphash;
+}
+```
+
+the way I figured out which hashes it was doing was by looking at the
+functions. they call some initialization function:
+
+```c
+void ** md5(void **pphash,std__string *param_2)
+
+{
+  FILE *__stream;
+  size_t sVar1;
+  undefined auStack1168 [4];
+  undefined auStack1164 [16];
+  undefined auStack1148 [88];
+  undefined auStack1060 [1024];
+  int local_24;
+  
+  local_24 = __stack_chk_guard;
+  __stream = fopen(param_2->start,"rb");
+  if (__stream == (FILE *)0x0) {
+    *pphash = (void *)0x0;
+    pphash[1] = (void *)0x0;
+  }
+  else {
+    md5_hash_initial(auStack1168,auStack1148);
+    while (sVar1 = fread(auStack1060,1,0x400,__stream), sVar1 != 0) {
+      md5_hash_update(auStack1168,auStack1148,auStack1060,sVar1);
+    }
+    fclose(__stream);
+    md5_finalize(auStack1168,auStack1164,auStack1148);
+    clone_memory(pphash,auStack1164,0x10);
+  }
+  if (local_24 != __stack_chk_guard) {
+                    /* WARNING: Subroutine does not return */
+    __stack_chk_fail();
+  }
+  return pphash;
+}
+```
+
+that initialization function has some very well known constants that I
+googled
+
+```c
+void md5_hash_initial(undefined4 param_1,undefined4 *param_2)
+
+{
+  param_2[5] = 0;
+  param_2[4] = 0;
+  *param_2 = 0x67452301;
+  param_2[1] = 0xefcdab89;
+  param_2[2] = 0x98badcfe;
+  param_2[3] = 0x10325476;
+  return;
+}
+```
+
+initially I thought they were all modified versions of sha1 with slightly
+different initial parameters but then I realized that md5, sha1, sha256 all
+have common hashes and from the output size you can tell which one it is
+(16, 24, 32 bytes)
+
+also, that memory_clone function reveals that pphash is a struct that
+contains data ptr and length
+
+so let's hook this conditional_hash function and see what the other file is
+
+we have a bit of a problem, this function appears to be using thumb
+instructions. we need different instructions to hook it
+
+```
+000233dc 10 b5           push       { r4, lr }
+000233de 04 46           mov        r4,pphash
+000233e0 12 b9           cbnz       type,LAB_000233e8
+000233e2 ff f7 19 ff     bl         md5
+```
+
+long story short the an absolute jump is performed with
+
+```
+ldr.w   pc, [pc]
+.word 0xbaadf00d
+```
+
+which assembles to
+
+```
+f8 df f0 00
+0d f0 ad ba
+```
+
+baadf00d would be the target address
+
+another issue is that the function uses a relative jump right at the
+beginning, so instead of calling the original through a trampoline,
+we will instead replace the entire function with our own and to that
+simple if/else ourselves
+
+we also have to compile the hook with thumb instructions by using
+`__attribute__((target("thumb")))`
+
+here's the hook I ended up with:
+
+```c
+typedef struct {
+  char unk[16];
+  char* end;
+  char* start;
+} std_string;
+
+typedef struct {
+  char* data;
+  int length;
+} hash_array;
+
+/* unused */
+static hash_array* (*original_hash)(hash_array* pphash, std_string* path,
+  int type);
+
+hash_array* (*md5)(hash_array* hash, std_string* path);
+hash_array* (*sha1)(hash_array* hash, std_string* path);
+hash_array* (*sha256)(hash_array* hash, std_string* path);
+
+static
+__attribute__((target("thumb")))
+hash_array* hooked_hash(hash_array* hash, std_string* path, int type) {
+  hash_array* res;
+  char buf[1024];
+  char* p = buf;
+  int i;
+  p += sprintf(p, "hash called with type %d on ", type);
+  memcpy(p, path->start, path->end - path->start);
+  p[path->end - path->start] = 0;
+  log(buf);
+  switch (type) {
+    case 0: res = md5(hash, path); break;
+    case 1: res = sha1(hash, path); break;
+    case 2: res = sha256(hash, path); break;
+    default:
+      log("unknown hash!");
+      hash->data = 0;
+      hash->length = 0;
+      return hash;
+  }
+  p = buf;
+  p += sprintf(p, "result: ");
+  for (i = 0; i < res->length; ++i) {
+    p += sprintf(p, "%02x", hash->data[i]);
+  }
+  log(buf);
+  return res;
+}
+```
+
+here's where I assign the function pointers for the 3 hashes, I have to
+set the lowest bit to 1 to ensure that the cpu knows it should stay in
+thumb mode
+
+```c
+  /* | 1 forces thumb mode */
+#define f(name, addr) \
+  *(int*)&name = ((int)dli.dli_fbase + addr) | 1
+
+  f(md5, 0x13218);
+  f(sha1, 0x132ac);
+  f(sha256, 0x13344);
+
+#undef f
+```
+
+and here's the output:
+
+```
+hash called with type 1 on /data/app/com.klab.lovelive.allstars-UVN-H8XkmXR-vs5WM0Fzvw==/lib/arm/libjackpot-core.so
+result: 5a3cb86aa9b082d6a1c1dfa6f73dd431d7f14e18
+hash called with type 1 on /data/app/com.klab.lovelive.allstars-UVN-H8XkmXR-vs5WM0Fzvw==/lib/arm/libil2cpp.so
+result: c4387c429c50c4782ab3df409db3abcfa8fadf79
+```
+
+alright, so the other file it's hashing is il2cpp
+
 to be continued...
