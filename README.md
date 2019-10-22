@@ -2892,4 +2892,241 @@ correct asset_state
 
 ![we are logged in](pic2.png)
 
+I took a closer look at the crazy asset_state generator function. compiler
+optimizations mangle the decompilation a lot but with patience you can
+repair it. it took around 2 days to name everything and recognize which
+were std::string operations, mostly by guessing
+
+the first part is reading from a huge string and copying to local arrays,
+which generates a lot of pointless vars, i redefined the whole memory area
+to be a large array. it's also appending some stuff in between
+
+this huge string is:
+
+```
+846t07:9t1:80+4/t\b2<5\x1c>5>):/4)[4+>5[sr\x17846t07:9t1:80+4/t\b2<5\x1c>5>):/4)`[:-:27:97>[sr\x01[<>/[s\x12r\x171:-:t7:5<t\b/)25<`[874(>[sr\r[846t07:9t1:80+4/t\x1a((>/(\x1f2<>(/\x1c>5>):/4)[s\x171:-:t7:5<t\b/)25<`r\x17846t07:9t1:80+4/t\x1a((>/(\x1f2<>(/\x1c>5>):/4)`[ +,m\x06#6#m\x0f#,#%\'&m\x0311\'/.;o\x01\x11*#02l&..BN\\BL\\GN]_KCCKFHJ\\[XN\\A@[NYNFCNMCJ/\\FHAN[Z]JKFHJ\\[XN\\A@[NYNFCNMCJ/.+ +.p!22l1-B
+```
+
+also it's not all ascii, so I'm not 100% sure it's really a single string
+
+first thing it does is save the first 3 chars of the base64 randombytes
+
+c
+```c
+  second_char = base64RandomBytes[1];
+  stack_guard = __stack_chk_guard;
+  third_char = base64RandomBytes[2];
+  first_char = *base64RandomBytes;
+```
+
+then it constructs `tmp2` by copying 32 characters at huge_string + 0x102
+followed by `J/`
+
+```c
+  huge_string_int32 = (int *)(huge_string + 0x102);
+  it1 = (int *)tmp2;
+  do {
+    ptr_2 = huge_string_int32 + 2;
+    int1 = huge_string_int32[1];
+    *it1 = *huge_string_int32;
+    it1[1] = int1;
+    it1 = it1 + 2;
+    huge_string_int32 = ptr_2;
+  } while (ptr_2 != (int *)(huge_string + 0x122));
+                    /* appends "J/" */
+  *(undefined2 *)it1 = 0x2f4a;
+```
+
+then it constructs `tmp1` by copying 24 characters from huge_string + 0x124
+followed by "FCNM" followed by 3 more chars copied past the end of the loop
+for a total of 30 characters
+
+```c
+  buf2 = (undefined4 *)tmp1;
+  huge_string_int32_ = (undefined4 *) (huge_string + 0x124);
+  do {
+    ptr_ = huge_string_int32_;
+    buf2_ = buf2;
+    int1_ = ptr_[1];
+    *buf2_ = *ptr_;
+    buf2_[1] = int1_;
+    buf2 = buf2_ + 2;
+    huge_string_int32_ = ptr_ + 2;
+  } while (ptr_ + 2 != (undefined4 *) (huge_string + 0x13c));
+  uVar2 = *(undefined2 *)(ptr_ + 3);
+  cVar1 = *(char *)((int)ptr_ + 0xe);
+                    /* appends "FCNM" */
+  buf2_[2] = 0x4d4e4346;
+                    /* copies 3 extra chars past the above loop after "FCNM" */
+  *(undefined2 *)(buf2_ + 3) = uVar2;
+  *(char *)((int)buf2_ + 0xe) = cVar1;
+```
+
+then it constructs `tmp3` by copying 8 characters from huge_string + 0x143
+followed by "2l1-" followed by 1 more char copied past the end of the loop
+for a total of 14 characters
+
+```c
+  buf2 = tmp3;
+  huge_string_int32_ = (undefined4 *) (huge_string + 0x143);
+  do {
+    ptr_ = huge_string_int32_;
+    buf2_ = buf2;
+    int1_ = ptr_[1];
+    *buf2_ = *ptr_;
+    buf2_[1] = int1_;
+    buf2 = buf2_ + 2;
+    huge_string_int32_ = ptr_ + 2;
+  } while (ptr_ + 2 != (undefined4 *) (huge_string + 0x14b));
+  cVar1 = *(char *)(ptr_ + 3);
+                    /* appends "2l1-" */
+  buf2_[2] = 0x2d316c32;
+                    /* copies 1 extra char past the above loop after "211-" */
+  *(char *)(buf2_ + 3) = cVar1;
+```
+
+then it calls a function that i named `xor_until_match` on the three bufs
+
+```c
+  xor_until_match('/',tmp2);
+  xor_until_match('/',tmp1);
+  xor_until_match('B',tmp3);
+```
+
+which xors every character with the given character until it finds a
+matching character which xors to zero:
+
+```c
+char * xor_until_match(char c,char *str)
+
+{
+  char *p;
+  char tmp;
+  
+  p = str;
+  do {
+    tmp = *p;
+    *p = tmp ^ c;
+    p = p + 1;
+  } while ((byte)(tmp ^ c) != 0);
+  return str;
+}
+```
+
+this also zero-terminates the strings, once the matching character is found
+
+then it proceeds to initialize two std strings. how did I know they were
+std strings? it took a lot of guess work and looking at the functions
+that are later called on them
+
+```c
+  string((int)&stdstring1);
+  string((int)&stdstring2);
+```
+
+I manually mapped a few fields like start and end for std::string, again
+by guessing
+
+then it calls dladdr on a fixed address which is this very function. this
+is used to get the path to `libjackpot-core.so`
+
+I mapped the Dl_info struct from [the manpages](http://man7.org/linux/man-pages/man3/dladdr.3.html)
+
+```c
+  int1 = dladdr(0x244b9,&dli);
+  if (int1 != 0) {
+    string_from_c((int)&path_to_libjackpot,dli.dli_fname);
+```
+
+this overly complicated thing (probably mangled by optimization) seems
+to strip the filename from the path (last element)
+
+```c
+    start = path_to_libjackpot.start;
+    len = path_to_libjackpot.end + -(int)path_to_libjackpot.start;
+    if (len == (char *)0x0) {
+LAB_000245b4:
+      it2 = (char *)0xffffffff;
+    }
+    else {
+                    /* i think this whole thing just strips the filename from the full path */
+      int1 = (int)len >> 2;
+      end = path_to_libjackpot.end;
+      while (it2 = end, 0 < int1) {
+        if (end[-1] == '/') goto LAB_00024628;
+        if (end[-2] == '/') {
+          it2 = end + -1;
+          goto LAB_00024628;
+        }
+        if (end[-3] == '/') {
+          it2 = end + -2;
+          goto LAB_00024628;
+        }
+        if (end[-4] == '/') {
+          it2 = end + -3;
+          goto LAB_00024628;
+        }
+        int1 = int1 + -1;
+        end = end + -4;
+      }
+      pcVar8 = end + -(int)path_to_libjackpot.start;
+      if (pcVar8 == (char *)0x2) {
+LAB_00024610:
+        it2 = end;
+        if (end[-1] != '/') {
+          end = end + -1;
+LAB_0002461a:
+          it2 = end;
+          if (end[-1] != '/') {
+            it2 = path_to_libjackpot.start;
+          }
+        }
+      }
+      else {
+        if (pcVar8 == (char *)0x3) {
+          if (end[-1] != '/') {
+            end = end + -1;
+            goto LAB_00024610;
+          }
+        }
+        else {
+          it2 = path_to_libjackpot.start;
+          if (pcVar8 == (char *)0x1) goto LAB_0002461a;
+        }
+      }
+LAB_00024628:
+      if (it2 == path_to_libjackpot.start) goto LAB_000245b4;
+      it2 = it2 + (-1 - (int)path_to_libjackpot.start);
+    }
+```
+
+it then stores second and third char of the random bytes base64 modulo 3
+
+```c
+                    /* the decompiler doesn't show it, but the remainder is stored in
+                       second_char_mod3 and third_char_mod3 */
+    __aeabi_idivmod((uint)second_char,3);
+    __aeabi_idivmod((uint)third_char,3);
+```
+
+here it appends tmp3 to the base directory of libjackpot-core.so
+
+```c
+    if (len < it2) {
+      it2 = len;
+    }
+    libjackpot_directory.end = (char *)&libjackpot_directory;
+    libjackpot_directory.start = (char *)&libjackpot_directory;
+    string_from_range(&libjackpot_directory,start,start + (int)it2);
+    string_concatenate_char(&tmpstring,&libjackpot_directory,&"/");
+    string_from_c((int)&tmp3_string,tmp3);
+    string_concatenate(&tmp3_path,&tmpstring,&tmp3_string);
+    operator_delete_(&tmp3_string);
+    operator_delete_(&tmpstring);
+    operator_delete_(&libjackpot_directory);
+```
+
+i think this is a good point to take a break and either hook or implement
+this first part of the function to see what the tmp strings are
+
 to be continued...
