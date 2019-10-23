@@ -3812,4 +3812,125 @@ the end of this crazy function
 
 so let's implement this abomination and see if it matches the game
 
+this took a lot of work to get the operator precedence right and not have
+signed-ness interfere in kotlin. i also hooked string_concat to check that
+at least I had the hashes right
+
+here is the result, and it produces asset_state values exactly like the
+game
+
+```kotlin
+fun String.hexStringToByteArray() =
+  chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+fun ByteArray.toHexString() = joinToString("") { "%02x".format(it) }
+fun ByteArray.xor(other: ByteArray) =
+  (zip(other) { a, b -> (a.toInt() xor b.toInt()).toByte() }).toByteArray()
+
+// md5, sha1, sha256 of the package's signature
+// obtained by running https://github.com/warren-bank/print-apk-signature
+// on the split apk
+val PackageSignatures = arrayOf(
+  "3f45f90cbcc718e4b63462baeae90c86",
+  "1be2103a6929b38798a29d89044892f3b3934184",
+  "1d32dbcf91697d46594ad689d49bb137f65d4bb8f56a26724ae7008648131b82"
+)
+
+// md5, sha1, sha256 of libjackpot-core.so
+val JackpotSignatures = arrayOf(
+  "81ec95e20a695c600375e3b8349722ab",
+  "5a3cb86aa9b082d6a1c1dfa6f73dd431d7f14e18",
+  "66370b8c96de7266b02bfe17e696d8a61b587656a34b19fbb0b2768a5305dd1d"
+).map { it.hexStringToByteArray() }
+
+// md5, sha1, sha256 of libil2cpp.so
+val Il2CppSignatures = arrayOf(
+  "67f969e32c2d775b35e2f2ad10b423c1",
+  "c4387c429c50c4782ab3df409db3abcfa8fadf79",
+  "d30568d1057fecb31a16f4062239c1ec65b9c2beab41b836658b637dcb5a51e4"
+).map { it.hexStringToByteArray() }
+
+@ExperimentalUnsignedTypes
+fun assetStateLogGenerateV2(randomBytes64: String): String {
+  val libHashChar = (randomBytes64[0].toInt() and 1) + 1
+  val libHashType = randomBytes64[libHashChar].toInt().rem(3)
+  val pkgHashChar = 2 - (randomBytes64[0].toInt() and 1)
+  val pkgHashType = randomBytes64[pkgHashChar].toInt().rem(3)
+  val xoredHashes =
+    JackpotSignatures[libHashType].xor(Il2CppSignatures[libHashType])
+      .toHexString()
+  val packageSignature = PackageSignatures[pkgHashType]
+  val signatures = when (randomBytes64[0].toInt() and 1) {
+    0 -> "$xoredHashes-$packageSignature"
+    1 -> "$packageSignature-$xoredHashes"
+    else -> "$xoredHashes-$packageSignature"
+  }
+  println(signatures)
+  var xorkey =
+    (randomBytes64[0].toByte().toUInt() or
+    (randomBytes64[1].toByte().toUInt() shl 8) or
+    (randomBytes64[2].toByte().toUInt() shl 16) or
+    (randomBytes64[3].toByte().toUInt() shl 24)) xor 0x12d8af36u
+  var a = 0u
+  var b = 0u
+  var c = 0x2bd57287u
+  var d = 0u
+  var e = 0x202c9ea2u
+  var f = 0u
+  var g = 0x139da385u
+  var h = 0u
+  var i = 0u
+  var j = 0u
+  var k = 0u
+  repeat(10) {
+    h = g
+    i = f
+    j = e
+    k = d
+    g = c
+    f = b
+    a = ((a shl 11) or (xorkey shr 21)) xor a
+    xorkey = (xorkey shl 11) xor xorkey
+    c = ((g shr 19) or (k shl 13)) xor xorkey xor g xor ((xorkey shr 8) or (a shl 24))
+    d = (k shr 19) xor a xor k xor (a shr 8)
+    xorkey = j
+    a = i
+    b = k
+    e = h
+  }
+  val xorBytes = ByteArray(signatures.length)
+  for (index in 0..signatures.length - 1) {
+    a = g
+    xorkey = f
+    b = ((i shl 11) or (j shr 21)) xor i
+    j = (j shl 11) xor j
+    e = ((c shr 19) or (d shl 13)) xor j xor c xor ((j shr 8) or (b shl 24))
+    xorBytes[index] = e.toByte()
+    f = k
+    g = c
+    k = d
+    j = h
+    i = xorkey
+    c = e
+    d = (d shr 19) xor b xor d xor (b shr 8)
+    h = a
+  }
+  return base64Encoder.encodeToString(signatures.toByteArray().xor(xorBytes))
+}
+```
+
+and here is a test with known values grabbed from the game. it produces
+the exact same output
+
+```
+# running
+random bytes: CB7tjOEZK6IQJrX93O0BuTjM5txYFmFO8sv1Pq9eAcE=
+
+3f45f90cbcc718e4b63462baeae90c86-9e04c42835e046ae8b7200e66a8e7ffe7f0b9161
+0fd36d6349f7a06c4a8e169a26d0010dc12bb77c50ea4579823c03f6498a4c6f52a6ba6bb4737b633f2f5077d9a62b161c6de5814d8b878dc42c620e58850a3774b70bc071dc1554d3
+
+expected:
+3f45f90cbcc718e4b63462baeae90c86-9e04c42835e046ae8b7200e66a8e7ffe7f0b9161
+0fd36d6349f7a06c4a8e169a26d0010dc12bb77c50ea4579823c03f6498a4c6f52a6ba6bb4737b633f2f5077d9a62b161c6de5814d8b878dc42c620e58850a3774b70bc071dc1554d3
+```
+
 to be continued...
