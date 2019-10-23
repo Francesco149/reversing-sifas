@@ -3346,4 +3346,470 @@ result: c4387c429c50c4782ab3df409db3abcfa8fadf79
 
 alright, so the other file it's hashing is il2cpp
 
+next, it xors the two hashes together, formats the result to a hexstring
+and puts it into stdstring1
+
+```c
+      array_xor(&xored_hashes,&libjackpot_hash,&tmp3_hash);
+      std_hexstring_from_array(&tmp3_string,&xored_hashes);
+      string_assignment((int)&stdstring1,(int)&tmp3_string);
+```
+
+the xor function was obvious
+
+```c
+some_kind_of_array * array_xor(some_kind_of_array *dst,some_kind_of_array *a,some_kind_of_array *b)
+
+{
+  char *result;
+  int len2;
+  uint i;
+  int len1;
+  
+  len2 = b->length;
+  len1 = a->length;
+  dst->data = (char *)0x0;
+  dst->length = 0;
+  if (len1 == len2) {
+    if (len1 != 0) {
+      result = (char *)operator.new(len1);
+      dst->data = result;
+      dst->length = len1;
+    }
+    i = 0;
+    while (i < (uint)a->length) {
+      dst->data[i] = a->data[i] ^ b->data[i];
+      i = i + 1;
+    }
+  }
+  return dst;
+}
+```
+
+`std_hexstring_from_array` was tricky to figure out. I hooked
+string_from_range which is called inside of it:
+
+```c
+void (*basic_string)(void* s, int len);
+void (*original_string_from_range)(std_string* s, char* start, char* end);
+
+static
+__attribute__((target("thumb")))
+void hooked_string_from_range(std_string* s, char* start, char* end) {
+  char buf[1024];
+  log("string from range");
+  memcpy(buf, start, end - start);
+  buf[end - start] = 0;
+  log(buf);
+  basic_string(s, end - start + 1);
+  memcpy(s->start, start, end - start);
+  s->end = s->start + (end - start);
+  s->start[end - start] = 0;
+}
+```
+
+and here's the result
+
+```
+string from range
+/data/app/com.klab.lovelive.allstars-UVN-H8XkmXR-vs5WM0Fzvw==/lib/arm
+hash called with type 2 on /data/app/com.klab.lovelive.allstars-UVN-H8XkmXR-vs5WM0Fzvw==/lib/arm/libjackpot-core.so
+result: 66370b8c96de7266b02bfe17e696d8a61b587656a34b19fbb0b2768a5305dd1d
+hash called with type 2 on /data/app/com.klab.lovelive.allstars-UVN-H8XkmXR-vs5WM0Fzvw==/lib/arm/libil2cpp.so
+result: d30568d1057fecb31a16f4062239c1ec65b9c2beab41b836658b637dcb5a51e4
+string from range
+b532635d93a19ed5aa3d0a11c4af194a7ee1b4e8080aa1cdd53915f7985f8cf9
+```
+
+next, it calls another huge function that unencrypts more strings from
+the huge_string we saw earlier.
+
+```
+      operator_delete_(&tmp3_string);
+      operator_delete(&xored_hashes);
+      operator_delete(&tmp3_hash);
+      operator_delete(&libjackpot_hash);
+      crazy_function(&tmp3_string,third_char_mod_3);
+      string_assignment((int)&stdstring2,(int)&tmp3_string);
+      operator_delete_(&tmp3_string);
+```
+
+if we scroll down we can see a string_from_range call, let's see what our
+earlier hook logs:
+
+```
+string from range
+1be2103a6929b38798a29d89044892f3b3934184
+```
+
+if we google for this hash, we find the apkpure page for SIFAS. it must
+be the package signature. using [this tool](https://github.com/warren-bank/print-apk-signature)
+on the apk confirms it:
+
+```
+Verifies
+Verified using v1 scheme (JAR signing): true
+Verified using v2 scheme (APK Signature Scheme v2): true
+Number of signers: 1
+Signer #1 certificate DN: CN=AS Team, OU=Unknown, O=KLab Inc., L=Unknown, ST=Unknown, C=JP
+Signer #1 certificate SHA-256 digest: 1d32dbcf91697d46594ad689d49bb137f65d4bb8f56a26724ae7008648131b82
+Signer #1 certificate SHA-1 digest: 1be2103a6929b38798a29d89044892f3b3934184
+Signer #1 certificate MD5 digest: 3f45f90cbcc718e4b63462baeae90c86
+Signer #1 key algorithm: RSA
+Signer #1 key size (bits): 2048
+Signer #1 public key SHA-256 digest: 5b125027893d4e43b5a4c1a4359968b86f0c0be30f9ef012349ba41855f0ff67
+Signer #1 public key SHA-1 digest: 447c28474fc0cba922d504b2fe88da0af35f2f0b
+Signer #1 public key MD5 digest: 43935540d5670e2869d777751c96c9a4
+```
+
+there's a peculiar function call at the beginning of the function. it seems
+to call a function from some class vtable. it's passing &tmp3_string and
+thid_char_mod_3 as param
+
+```c
+int * call_some_class(undefined4 param_1,int *param_2)
+
+{
+  int *local_c [3];
+  
+  local_c[0] = some_class;
+  if (some_class != (int *)0x0) {
+    local_c[0] = param_2;
+    (**(code **)(*some_class + 0x10))(some_class,local_c,0,*(code **)(*some_class + 0x10),param_1);
+  }
+  return local_c[0];
+}
+```
+
+if we look at what else references some_class, we find that it's the jni
+env, assigned on JNI_OnLoad. the parameter is well documented. it also
+seems to be doing some interesting rng initialization
+
+```c
+undefined4 JNI_OnLoad(void *vm,void *reserved)
+
+{
+  initialize_rand_seed(vm);
+  return 0x10006;
+}
+
+void initialize_rand_seed(void *vm)
+
+{
+  time_t __seedval;
+  long rand;
+  undefined4 first_rand;
+  int extraout_r1;
+  int extraout_r1_00;
+  
+  set_jni_env(vm);
+  if (rng_initialized == 0) {
+    __seedval = time((time_t *)(uint)rng_initialized);
+    srand48(__seedval);
+                    /* extract random numbers between 100 and 1000 until one matches the first
+                       number extracted */
+    rand = lrand48();
+    __aeabi_idivmod(rand,900);
+    do {
+      rand = lrand48();
+      __aeabi_idivmod(rand,900);
+    } while (extraout_r1 + 100 == extraout_r1_00 + 100);
+    matching_rand_xor_& = xor('&',extraout_r1 + 100);
+    first_rand_xor_& = xor('&',extraout_r1_00 + 100);
+    first_rand = xor('&',first_rand_xor_&);
+    first_rand_xor_M = xor('M',first_rand);
+    char_r = xor('r',0);
+    rng_initialized = 1;
+  }
+  return;
+}
+
+void set_jni_env(undefined4 jni_env)
+
+{
+  jni_env = jni_env;
+  return;
+}
+```
+
+the jni call is being passed `third_char_mod_3` so I have a feeling that
+decides which hash to use like with the other hashing function
+
+```c
+jniresult = call_jni_env(str,(int *)(int)third_char_mod_3);
+```
+
+if we scroll down further we can find more calls into the jni env
+
+```c
+  uVar4 = FUN_00023124(jniresult,tmpint__,tmp4,tmp5);
+  uVar5 = FUN_00023124(jniresult,tmpint__,tmp6,tmp7);
+  uVar6 = FUN_00023124(jniresult,tmpint__,tmp8,tmp9);
+```
+
+right before this, we have a bunch of xor_until_match calls. let's hook
+those and log all the unencrypted strings
+
+for some reason i had to hook 1 instruction into the func otherwise it
+would crash, either way here's the results
+
+```
+xor until match '['
+com/klab/jackpot/SignGenerator
+xor until match '['
+open
+xor until match '['
+()Lcom/klab/jackpot/SignGenerator;
+xor until match '['
+available
+xor until match '['
+()Z
+xor until match '['
+get
+xor until match '['
+(I)Ljava/lang/String;
+xor until match '['
+close
+xor until match '['
+()V
+string from range
+3f45f90cbcc718e4b63462baeae90c86
+```
+
+so yeah, time to pull up the java side of the code
+
+nothing special going on in the constructor, just grabbing the sig bytes
+
+```java
+void SignGenerator(SignGenerator this)
+
+{
+  PackageManager ref;
+  String pSVar1;
+  PackageInfo pPVar2;
+  byte[] pbVar3;
+  CertificateFactory ref_00;
+  Certificate ref_01;
+  Activity ref_02;
+  Signature[] ppSVar4;
+  Signature ref_03;
+  InputStream ref_04;
+  
+  this.<init>();
+  ref_02 = UnityPlayer.currentActivity;
+  ref = ref_02.getPackageManager();
+  pSVar1 = ref_02.getPackageName();
+                    /* GET_SIGNATURES */
+  pPVar2 = ref.getPackageInfo(pSVar1,0x40);
+  ppSVar4 = pPVar2.signatures;
+  if ((ppSVar4 == null) || (ppSVar4.length < 1)) {
+    ref_03 = null;
+  }
+  else {
+    ref_03 = ppSVar4[0];
+  }
+  if (ref_03 == null) {
+    return;
+  }
+  pbVar3 = ref_03.toByteArray();
+  if (pbVar3 == null) {
+    return;
+  }
+  ref_04 = new InputStream(pbVar3);
+  ref_00 = CertificateFactory.getInstance("X509");
+  if (ref_00 == null) {
+    return;
+  }
+  ref_01 = ref_00.generateCertificate(ref_04);
+  checkCast(ref_01,X509Certificate);
+  if (ref_01 == null) {
+    return;
+  }
+  pbVar3 = ref_01.getEncoded();
+  this.mBytes = pbVar3;
+  return;
+}
+```
+
+let's look at other methods of this class
+
+```java
+String get(SignGenerator this,int p1)
+
+{
+  boolean bVar1;
+  MessageDigest ref;
+  byte[] pbVar2;
+  String ref_00;
+  Object[] ppOVar3;
+  BigInteger ref_01;
+  StringBuilder ref_02;
+  
+  bVar1 = this.available();
+  if (bVar1 == false) {
+    return null;
+  }
+  if (p1 == 0) {
+    ref = MessageDigest.getInstance("md5");
+  }
+  else {
+    if (p1 == 1) {
+      ref = MessageDigest.getInstance("sha1");
+    }
+    else {
+      ref = MessageDigest.getInstance("sha256");
+    }
+  }
+  if (ref == null) {
+    return null;
+  }
+  pbVar2 = ref.digest(this.mBytes);
+  ref_01 = new BigInteger(1,pbVar2);
+  ref_02 = new StringBuilder();
+  ref_02.append("%0");
+  ref_02.append(pbVar2.length << 1);
+  ref_02.append("X");
+  ref_00 = ref_02.toString();
+  ppOVar3 = new Object[1];
+  ppOVar3[0] = ref_01;
+  ref_00 = String.format(ref_00,ppOVar3);
+  ref_00 = ref_00.toLowerCase();
+  return ref_00;
+}
+```
+
+exactly as predicted. p1 would be the `third_char_mod_3`
+
+we can confidently rename the `crazy_function` to `get_package_signature`
+
+there's one more trick to this madness, it swaps third/second char mod3
+based on whether the first character of base64 bytes is even or odd
+
+```c
+    if ((first_char & 1) == 0) {
+      conditional_hash(&libjackpot_hash,&path_to_libjackpot,second_char_mod_3);
+                    /* il2cpp */
+      conditional_hash(&tmp3_hash,&tmp3_path,second_char_mod_3);
+      ptmp3_hash = &tmp3_hash;
+      array_xor(&xored_hashes,&libjackpot_hash,&tmp3_hash);
+      std_hexstring_from_array(&tmp3_string,&xored_hashes);
+      string_assignment((int)&stdstring1,(int)&tmp3_string);
+      operator_delete_(&tmp3_string);
+      operator_delete(&xored_hashes);
+      operator_delete(&tmp3_hash);
+      operator_delete(&libjackpot_hash);
+      get_package_signature(&tmp3_string,third_char_mod_3,ptmp3_hash);
+      string_assignment((int)&stdstring2,(int)&tmp3_string);
+      operator_delete_(&tmp3_string);
+    }
+    else {
+      get_package_signature(&tmp3_string,(char)second_char_mod_3);
+      string_assignment((int)&stdstring1,(int)&tmp3_string);
+      operator_delete_(&tmp3_string);
+      conditional_hash(&libjackpot_hash,&path_to_libjackpot,third_char_mod_3);
+      conditional_hash(&tmp3_hash,&tmp3_path,third_char_mod_3);
+      array_xor(&xored_hashes,&libjackpot_hash,&tmp3_hash);
+      std_hexstring_from_array(&tmp3_string,&xored_hashes);
+      string_assignment((int)&stdstring2,(int)&tmp3_string);
+      operator_delete_(&tmp3_string);
+      operator_delete(&xored_hashes);
+      operator_delete(&tmp3_hash);
+      operator_delete(&libjackpot_hash);
+    }
+```
+
+note also how signature and xored hash are swapped between stdstring1/2
+
+finally it concatenates the xored hashes and the package signature in
+a single string, separating them with '-'.
+
+```c
+  if ((first_char & 1) == 0) {
+    if (stdstring1.start == stdstring1.end) {
+      string_from_c((int)&tmp3_string,tmp2);
+      string_assignment((int)&stdstring1,(int)&tmp3_string);
+      operator_delete_(&tmp3_string);
+    }
+    if (stdstring2.start != stdstring2.end) goto LAB_0002480e;
+    puVar3 = &stack0x00000104;
+  }
+  else {
+    if (stdstring1.start == stdstring1.end) {
+      string_from_c((int)&tmp3_string,tmp1);
+      string_assignment((int)&stdstring1,(int)&tmp3_string);
+      operator_delete_(&tmp3_string);
+    }
+    if (stdstring2.start != stdstring2.end) goto LAB_0002480e;
+    puVar3 = &stack0x00000124;
+  }
+  string_from_c((int)&tmp3_string,puVar3 + -0x174);
+  string_assignment((int)&stdstring2,(int)&tmp3_string);
+  operator_delete_(&tmp3_string);
+LAB_0002480e:
+  string_concatenate_char(&tmp3_string,&stdstring1,"-");
+  string_concatenate(&tmpstring,&tmp3_string,&stdstring2);
+  operator_delete_(&tmp3_string);
+```
+
+the tmp1/tmp2 cases will never be reached as stdstring1 will always be set
+to either the package signature or the xored hashes. therefore the only
+code that matters is the part at `LAB_0002480e:` , where it concatenates
+stdstring1 (either sig or xored hashes), "-", and stdstring2 (either sig
+or xored hashes) into tmpstring
+
+finally, we have a pretty convoluted xor encryption of some sort which
+is stored into what was `xored_hashes` earlier and the result is
+base64 encoded, and there's our `asset_state` field! we finally reached
+the end of this crazy function
+
+```c
+  rounds = 10;
+  xorkey = ((uint)(byte)*base64RandomBytes |
+            (uint)(byte)base64RandomBytes[2] << 0x10 | (uint)(byte)base64RandomBytes[1] << 8 |
+           (uint)(byte)base64RandomBytes[3] << 0x18) ^ 0x12d8af36;
+  a = 0;
+  b = 0;
+  c = 0x2bd57287;
+  d = 0;
+  e = 0x202c9ea2;
+  f = 0;
+  g = 0x139da385;
+  do {
+    h = g;
+    i = f;
+    j = e;
+    k = d;
+    g = c;
+    f = b;
+    a = (a << 0xb | xorkey >> 0x15) ^ a;
+    xorkey = xorkey << 0xb ^ xorkey;
+    c = (g >> 0x13 | k << 0xd) ^ xorkey ^ g ^ (xorkey >> 8 | a << 0x18);
+    d = k >> 0x13 ^ a ^ k ^ a >> 8;
+    rounds = rounds + -1;
+    xorkey = j;
+    a = i;
+    b = k;
+    e = h;
+  } while (rounds != 0);
+  new_array(&xored_hashes,(int)(tmpstring.end + -(int)tmpstring.start));
+  while (a = g, xorkey = f, rounds < (int)(tmpstring.end + -(int)tmpstring.start)) {
+    b = (i << 0xb | j >> 0x15) ^ i;
+    j = j << 0xb ^ j;
+    e = (c >> 0x13 | d << 0xd) ^ j ^ c ^ (j >> 8 | b << 0x18);
+    xored_hashes.data[rounds] = tmpstring.start[rounds] ^ (byte)e;
+    rounds = rounds + 1;
+    f = k;
+    g = c;
+    k = d;
+    j = h;
+    i = xorkey;
+    c = e;
+    d = d >> 0x13 ^ b ^ d ^ b >> 8;
+    h = a;
+  }
+  base64_encode(base64_result,&xored_hashes);
+```
+
+so let's implement this abomination and see if it matches the game
+
 to be continued...
