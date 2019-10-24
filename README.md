@@ -3951,4 +3951,113 @@ version accepted (from the LoginResponse) and gets back the current terms
 of service version. the response is a LoginResponse but with a lot of the
 data omitted
 
+... except it 403's for some reason. most likely something changes the
+sessionKey after the login request. I remember seeing a method named
+SessionEncrypt that takes the first 16 bytes of the sessionKey and
+does some stuff with rijndael. let's take a look at it
+
+it's using a lot of virtual function calls
+
+```c
+  rijndaelManaged = (int *)thunk_FUN_008ae738(Class$System.Security.Cryptography.RijndaelManaged);
+  RijndaelManaged$$.ctor(rijndaelManaged,0);
+...
+  uVar1 = DMHttpApi$$CopySessionKey(0x10);
+...
+  (**(code **)(*rijndaelManaged + 0x128))
+            (rijndaelManaged,uVar1,*(undefined4 *)(*rijndaelManaged + 300));
+  (**(code **)(*rijndaelManaged + 0x198))(rijndaelManaged,*(undefined4 *)(*rijndaelManaged + 0x19c))
+  ;
+  piVar2 = (int *)(**(code **)(*rijndaelManaged + 0x170))
+                            (rijndaelManaged,*(undefined4 *)(*rijndaelManaged + 0x174));
+  uVar1 = (**(code **)(*rijndaelManaged + 0x110))
+                    (rijndaelManaged,*(undefined4 *)(*rijndaelManaged + 0x114));
+
+...
+```
+
+let's scroll down for clues.
+
+since it says ICryptoTransform, I guessed this is the call to one of
+the transform methods of the encryptor
+
+```c
+pTransformBlock = (code **)FUN_0086a584(encryptor,Class$System.Security.Cryptography.ICryptoTransform,5);
+encryptedBytes = (**pTransformBlock)(encryptor,bytes,0,numBytes,pTransformBlock[1]);
+```
+
+let's look at the docs for ICryptoTransform.
+the signature for TransformBlock is:
+
+```
+public byte[] TransformFinalBlock (byte[] inputBuffer, int inputOffset, int inputCount);
+```
+
+that matches, and the last parameter is a decompilation error. this also
+tells me that what i named `bytes` is our standard `Array` struct we've
+used in other hooks
+
+so, are the 16 bytes of the sessionKey the IV or the Key? it's tricky
+to tell, the IV has to be 16 bytes, but the key can also be 16 bytes
+
+also, I can't find any x-refs to this so let's hook it and see where it's
+being called from
+
+very interesting. it seems that this is not what I thought it was.
+it appears to be encrypting values in memory, specifically important
+in-game things. it's called as soon as you start a live and the call is the
+second last `Int::set_Value` here:
+
+```c
+void BuffInfo$$.ctor(int param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,
+                    undefined4 param_5)
+
+{
+  undefined4 uVar1;
+  int iVar2;
+  
+  if (DAT_03708177 == '\0') {
+    FUN_00871ed4(0x1d99);
+    DAT_03708177 = '\x01';
+  }
+  Object$$.ctor(param_1,0);
+  uVar1 = thunk_FUN_008ae738(Class$LLAS.ObfuscatedTypes.Int);
+  Int$$.ctor(uVar1,0,0);
+  *(undefined4 *)(param_1 + 8) = uVar1;
+  uVar1 = thunk_FUN_008ae738(Class$LLAS.ObfuscatedTypes.Int);
+  Int$$.ctor(uVar1,0,0);
+  *(undefined4 *)(param_1 + 0xc) = uVar1;
+  uVar1 = thunk_FUN_008ae738(Class$LLAS.ObfuscatedTypes.Int);
+  Int$$.ctor(uVar1,0,0);
+  *(undefined4 *)(param_1 + 0x10) = uVar1;
+  uVar1 = thunk_FUN_008ae738(Class$LLAS.ObfuscatedTypes.Int);
+  Int$$.ctor(uVar1,0,0);
+  iVar2 = *(int *)(param_1 + 0xc);
+  *(undefined4 *)(param_1 + 0x14) = uVar1;
+  if (iVar2 == 0) {
+    FUN_0089d750(0);
+  }
+  Int$$set_Value(iVar2,param_2,0);
+  iVar2 = *(int *)(param_1 + 8);
+  if (iVar2 == 0) {
+    FUN_0089d750(0);
+  }
+  Int$$set_Value(iVar2,param_3,0);
+  iVar2 = *(int *)(param_1 + 0x10);
+  if (iVar2 == 0) {
+    FUN_0089d750(0);
+  }
+  Int$$set_Value(iVar2,param_4,0);
+  iVar2 = *(int *)(param_1 + 0x14);
+  if (iVar2 == 0) {
+    FUN_0089d750(0);
+  }
+  Int$$set_Value(iVar2,param_5,0);
+  return;
+}
+```
+
+well, I'm not really interested in this, so this is a dead end for now.
+gotta figure out why my terms of service request isn't being accepted
+
 to be continued...
