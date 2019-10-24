@@ -3933,4 +3933,17 @@ expected:
 0fd36d6349f7a06c4a8e169a26d0010dc12bb77c50ea4579823c03f6498a4c6f52a6ba6bb4737b633f2f5077d9a62b161c6de5814d8b878dc42c620e58850a3774b70bc071dc1554d3
 ```
 
+I spent some time mapping a bunch of the json responses. the
+`Serialization$$Deserialize*` functions tell you all about which fields
+each object has and which ones are optional. very relaxing activity
+
+I also had to fight gson to override its builtin map serializer since
+sifas maps are laid out as `[key, value, key, value, ...]` . it was not
+a fun experience working with the generics hell that is java/kotlin
+
+another thing I noticed is that the first hash in the response array is
+actually what's being used as MasterVersion, so I'll stop hardcoding it.
+instead, you're supposed to send a
+`/dataLink/fetchGameServiceDataBeforeLogin` call without MasterVersion
+
 to be continued...
