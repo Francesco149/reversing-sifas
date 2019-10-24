@@ -3946,4 +3946,9 @@ actually what's being used as MasterVersion, so I'll stop hardcoding it.
 instead, you're supposed to send a
 `/dataLink/fetchGameServiceDataBeforeLogin` call without MasterVersion
 
+next is the terms of service check. nothing special, it sends the current
+version accepted (from the LoginResponse) and gets back the current terms
+of service version. the response is a LoginResponse but with a lot of the
+data omitted
+
 to be continued...
