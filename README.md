@@ -4333,11 +4333,71 @@ const { register, listen } = require('push-receiver');
 });
 ```
 
-the token should be the gcm one
+the token should be the fcm one
 
 it was hard to find anything else that could do this in other langs and
 I'm not up for implementing firebase protocol, but yeah, this should be
 how you get 100% real tokens. or just send it empty, it shouldn't be
 mandatory
+
+all fields in setProfile are optional and it calls it multiple times, once
+for name and once for nickname, always providing the device token
+
+name and nickname must be 10 characters max. I keep them alphanumeric, but
+I think spaces are allowed in both. if you enter an invalid name, the
+server responds with error 500
+
+the response is once again a LoginResponse
+
+next request is `/userProfile/setProfileBirthday` . nothing special here,
+just send month and day
+
+next up is `/story/finishUserStoryMain` . I think this is sent when you
+skip the cutscene after setting your name. again nothing special, the only
+dubious part is how `is_auto_mode` is determined, but it might be on
+a per-chapter basis and stored in the game's database
+
+the response contains a `user_model_diff` field which is a UseModel object
+just like in the LoginResponse, but most likely only contains changed
+fields. maybe those other smaller LoginResponses work like this
+
+next up is `/live/start`, which as the name suggests starts a live. as
+with old sif, you can pick a partner and the partner user id is sent here.
+the response contains literally the entire map - all the note timings and
+other things
+
+after the live start request, it sends a saveRuleDescription request
+with a rule description id that was added to the user model after the
+finishUserStoryMain request. this changes its `display_status` from 1 to 3.
+no idea what this means but we could speculate it's the story progression
+status of each chapter
+
+I also figured out that the "LoginResponse" responses for terms and the
+other non-login requests is actually called UserModelResponse and only
+expects `user_model`
+
+so it seems that the game freezes when i start a live while it's hooked.
+I think this might be because the lib I am hooking from is being reloaded
+or something, resulting in hooks jumping to deallocated memory. need to
+investigate how to properly uninstall hooks when the library is unloaded
+
+nevermind, after looking at the log it seems simpler - looks like we're
+missing an export
+
+```
+10-25 22:34:46.166  9776  9801 E Unity   : EntryPointNotFoundException: Unable to find an entry point named 'NativeInputPollTouches' in 'KLab.
+NativeInput.Native'.
+10-25 22:34:46.166  9776  9801 E Unity   :   at KLab.NativeInput.LowLevel.NativeTouchQueue.Dll_PollTouches (System.Void* result, System.Int32
+resultLength, System.Int32& anyRemaining) [0x00000] in <00000000000000000000000000000000>:0
+10-25 22:34:46.166  9776  9801 E Unity   :   at KLab.NativeInput.LowLevel.NativeTouchQueue.PollTouches () [0x00000] in <00000000000000000000000000000000>:0
+10-25 22:34:46.166  9776  9801 E Unity   :   at KLab.NativeInput.LowLevel.NativeTouchQueue.GetLatestTouches (System.Collections.Generic.List`1
+[T] result) [0x00000] in <00000000000000000000000000000000>:0
+10-25 22:34:46.166  9776  9801 E Unity   :   at LLAS.Scene.Live.Game.TouchInputBroadcaster.RefreshInput () [0x00000] in <000000000000000000000
+00000000000>:0
+```
+
+let's add all the `NativeInput*` exports
+
+yep, doesn't crash anymore now. time to log and implement more requests
 
 to be continued...
