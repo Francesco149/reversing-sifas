@@ -4060,4 +4060,19 @@ void BuffInfo$$.ctor(int param_1,undefined4 param_2,undefined4 param_3,undefined
 well, I'm not really interested in this, so this is a dead end for now.
 gotta figure out why my terms of service request isn't being accepted
 
+oh I'm stupid, there's a session key right in the login response! and it
+gets xored in `DMHttpApi.__c__DisplayClass14_1$$_Login_b__1`
+
+what it gets xored with is likely either the old sessionKey or the same
+randomBytes that are xored with the startup auth key
+
+and sure enough, it's the random bytes that are used to make the login
+mask in `DMHttpApi.__c__DisplayClass14_0$$_Login_b__0`
+
+seeing how not many other places call randomBytes I'm inclined to think
+this is similar to how old SIF worked and that I should hold onto those
+random bytes and only regenerate on startup/login
+
+there we go, we are truly logged in now, that was a brainlet moment
+
 to be continued...
