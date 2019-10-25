@@ -4075,4 +4075,269 @@ random bytes and only regenerate on startup/login
 
 there we go, we are truly logged in now, that was a brainlet moment
 
+so the next request is `/userProfile/setProfile` which sets name and
+nickname, but most interestingly it contains a field called `device_token`
+
+let's look at the `SetUserProfileRequest` constructor and the device
+token getter
+
+```c
+void SetUserProfileRequest$$.ctor
+               (int param_1,undefined4 param_2,undefined4 param_3,undefined4 param_4,
+               undefined4 param_5)
+
+{
+  Object$$.ctor(param_1,0);
+  *(undefined4 *)(param_1 + 8) = param_2;
+  *(undefined4 *)(param_1 + 0xc) = param_3;
+  *(undefined4 *)(param_1 + 0x10) = param_4;
+  *(undefined4 *)(param_1 + 0x14) = param_5;
+  return;
+}
+
+void SetUserProfileRequest$$set_DeviceToken(int param_1,undefined4 param_2)
+
+{
+  *(undefined4 *)(param_1 + 0x14) = param_2;
+  return;
+}
+```
+
+okay, so param 5 of the constructor is the device token. what calls the
+constructor?
+
+```c
+void UserProfileDM$$SetName
+               (undefined4 param_1,undefined4 deviceToken,undefined4 param_3,undefined4 param_4)
+
+{
+  int iVar1;
+  int iVar2;
+  undefined4 uVar3;
+  undefined4 uVar4;
+  undefined4 uVar5;
+  
+  if (DAT_037070ef == '\0') {
+    FUN_00871ed4(0xbdc0);
+    DAT_037070ef = '\x01';
+  }
+  iVar1 = thunk_FUN_008ae738(Class$UserProfileDM.__c__DisplayClass5_0);
+  Object$$.ctor(iVar1,0);
+  if (iVar1 == 0) {
+    FUN_0089d750(0);
+    _DAT_00000008 = param_3;
+    FUN_0089d750(0);
+  }
+  else {
+    *(undefined4 *)(iVar1 + 8) = param_3;
+  }
+  *(undefined4 *)(iVar1 + 0xc) = param_4;
+  iVar2 = UserProfileDM$$CheckInputTextLength(1,param_1);
+  if (iVar2 == 1) {
+    iVar2 = thunk_FUN_008ae738(Class$DotUnder.SVAPI.SetUserProfile);
+    SetUserProfile$$.ctor(iVar2,0);
+    uVar3 = thunk_FUN_008ae738(Class$DotUnder.Structure.SetUserProfileRequest);
+    SetUserProfileRequest$$.ctor(uVar3,param_1,0,0,deviceToken,0);
+...
+```
+
+(the last zero param is a decompilation error)
+
+great, so what passes the deviceToken to SetName?
+
+```c
+void TutorialDM$$SetUserName(undefined4 param_1,undefined4 param_2,undefined4 param_3)
+
+{
+  undefined4 uVar1;
+  
+  uVar1 = PushNotificationDM$$GetDeviceToken(0);
+  UserProfileDM$$SetName(param_1,uVar1,param_2,param_3,0);
+  return;
+}
+```
+
+would you look at that
+
+let's see where this leads us
+
+```c
+int PushNotificationDM$$GetDeviceToken(void)
+
+{
+  int iVar1;
+  
+  if (DAT_03706971 == '\0') {
+    FUN_00871ed4(0x7da8);
+    DAT_03706971 = '\x01';
+  }
+  iVar1 = ASLocalStorage$$get_PushNotificationDeviceToken(0);
+  if (iVar1 == 0) {
+    iVar1 = StringLiteral_73;
+  }
+  return iVar1;
+}
+
+undefined4 ASLocalStorage$$get_PushNotificationDeviceToken(void)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  
+  if (DAT_037093a3 == '\0') {
+    FUN_00871ed4(0x91);
+    DAT_037093a3 = '\x01';
+  }
+  if (((*(byte *)(Class$DotUnder.LocalStorage + 0xbf) & 2) != 0) &&
+     (*(int *)(Class$DotUnder.LocalStorage + 0x70) == 0)) {
+    FUN_0087f930();
+  }
+  iVar1 = LocalStorage$$HasKey("PushNotificationDeviceToken",0);
+  if (iVar1 == 1) {
+    if (((*(byte *)(Class$DotUnder.LocalStorage + 0xbf) & 2) != 0) &&
+       (*(int *)(Class$DotUnder.LocalStorage + 0x70) == 0)) {
+      FUN_0087f930();
+    }
+    uVar2 = LocalStorage$$GetString("PushNotificationDeviceToken",StringLiteral_73,0);
+    return uVar2;
+  }
+  return 0;
+}
+```
+
+cool, so it's in local storage. is there anything that actyally sets it?
+let's check other ASLocalStorage methods
+
+there is
+
+```c
+void ASLocalStorage$$set_PushNotificationDeviceToken(int param_1)
+
+{
+  if (DAT_037093a4 == '\0') {
+    FUN_00871ed4(0xf5);
+    DAT_037093a4 = '\x01';
+  }
+  if (param_1 != 0) {
+    if (((*(ushort *)(Class$DotUnder.LocalStorage + 0xbe) & 0x200) != 0) &&
+       (*(int *)(Class$DotUnder.LocalStorage + 0x70) == 0)) {
+      FUN_0087f930();
+    }
+    LocalStorage$$SetString("PushNotificationDeviceToken",param_1,0);
+    return;
+  }
+  if (((*(ushort *)(Class$DotUnder.LocalStorage + 0xbe) & 0x200) != 0) &&
+     (*(int *)(Class$DotUnder.LocalStorage + 0x70) == 0)) {
+    FUN_0087f930();
+  }
+  LocalStorage$$DeleteKey("PushNotificationDeviceToken",0);
+  return;
+}
+
+void PushNotificationDM$$SetDeviceToken(undefined4 param_1)
+
+{
+  ASLocalStorage$$set_PushNotificationDeviceToken(param_1,0);
+  return;
+}
+
+void PushNotification.__c$$_InitializeFirebaseMessaging_b__7_0
+               (undefined4 param_1,undefined4 param_2,int param_3)
+
+{
+  undefined4 uVar1;
+  undefined4 uVar2;
+  
+  if (DAT_03704bd7 == '\0') {
+    FUN_00871ed4(0xaff0);
+    DAT_03704bd7 = '\x01';
+  }
+  if (param_3 == 0) {
+    FUN_0089d750(0);
+  }
+  uVar1 = TokenReceivedEventArgs$$get_Token(param_3,0);
+  uVar1 = String$$Concat("FirebaseMessaging:-Token-Received:",uVar1,0);
+  uVar2 = FUN_010fe368(Method$Array.Empty()_object_);
+  if (((*(byte *)(Class$LLAS.LLogger + 0xbf) & 2) != 0) &&
+     (*(int *)(Class$LLAS.LLogger + 0x70) == 0)) {
+    FUN_0087f930();
+  }
+  LLogger$$Debug(uVar1,uVar2,0);
+  if (param_3 == 0) {
+    FUN_0089d750(0);
+  }
+  uVar1 = TokenReceivedEventArgs$$get_Token(param_3,0);
+  PushNotificationDM$$SetDeviceToken(uVar1,0);
+  return;
+}
+```
+
+hmm. it seems to be a standard token for push notifications obtained
+through firebase. I wonder if they actually check it. I doubt it, but if
+it's not too hard I would like to get a valid one
+
+in base.apk/assets/google-services-desktop.json we can find the
+firebase info
+
+```json
+{
+  "project_info": {
+    "project_number": "304268967066",
+    "firebase_url": "https://all-stars-dev-91501190.firebaseio.com",
+    "project_id": "all-stars-dev-91501190",
+    "storage_bucket": "all-stars-dev-91501190.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:304268967066:ios:fc1a9b49d6829936",
+        "android_client_info": {
+          "package_name": "com.Company.ProductName"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "304268967066-e3n2no1402f89rqub55u0c7jrhhj4o3d.apps.googleusercontent.com"
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBAehda1QFNwi2g9U4FcT7m8lF8NPAdikg"
+        }
+      ],
+      "services": {
+        "analytics_service": {
+          "status": 0
+        },
+        "appinvite_service": {
+          "status": 0
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
+```
+
+using `push-receiver` in nodejs and the `project_number` for sifas you can
+get what look like valid push notification tokens:
+
+```js
+const { register, listen } = require('push-receiver');
+
+(async () => {
+  credentials = await register(304268967066);
+  console.log(credentials)
+})().catch(e => {
+  console.log(e)
+});
+```
+
+the token should be the gcm one
+
+it was hard to find anything else that could do this in other langs and
+I'm not up for implementing firebase protocol, but yeah, this should be
+how you get 100% real tokens. or just send it empty, it shouldn't be
+mandatory
+
 to be continued...
