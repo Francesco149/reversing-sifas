@@ -4,6 +4,13 @@ collect and add as I reverse engineer it
 this information is public domain. feel free to use it and republish it
 however you please
 
+# road to headless client
+this is a raw diary of notes i wrote down as I reverse engineered the game
+from scratch. the goal was to create a headless client that could connect
+to the game servers, create accounts and get daily login rewards. this is
+completely uncut, and there will be wrong premature observations that are
+later corrected
+
 I installed the game on android x86 on a PC (had to unroot android to make
 it run) and fully updated it.
 
@@ -4400,4 +4407,234 @@ let's add all the `NativeInput*` exports
 
 yep, doesn't crash anymore now. time to log and implement more requests
 
-to be continued...
+once you complete a song, the game sends note-by-note scoring to
+/live/finish , but I'm not gonna bother emulating that for now. for the
+tutorial lives, you can skip and it will send all notes with 0 score
+
+the `live_id` in this request is interesting. you get it from the live start
+request response and it's an unusually large number.
+
+I'm 99% sure the first few digits are the timestamp, but I don't know if
+the whole thing is a really high resolution timestamp or if it's 2
+values combined. doesn't really matter, because we don't need to compute
+it, I just thought it seemed interesting.
+
+so, for the result dict we get the note id's from the live start response
+and set them all to judge type 1, voltage 0, card master id 0
+
+`wave_stat` dict should match the `live_wave_settings` from the live start
+request. I think this is always set to all false's when skipping
+
+the `turn_stat_dict` seems also all zero'd, except for the first note.
+we need to calculate or hardcode `current_life` for this first note.
+I'll hardcode it for now
+
+not sure where `target_score` comes from, I'll hardcode it for now. we
+only need to skip the 2 tutorial lives anyway
+
+somehow, skipping submits the score as a "perfect" live and even full combo
+
+live power, yet another value to hardcode or learn to calculate from the
+team info
+
+for the card stat dict, it's just the card id's from `user_live_deck_by_id`
+with all zero vals
+
+interestingly, at the end of turn stat dict we have notes 0 and 55 which
+are technically out of bounds and note 0 has current life set like note 1.
+this pattern repeats in different songs
+
+next up we just have another story complete request and another live skip,
+nothing to see here. also another saveRuleDescription, this time with id
+2 (previous one was id 1)
+
+then there's the favorite character selection,
+`/communicationMember/setFavoriteMember` . straightforward request,
+nothing to see. seems to return a UserModelResponse
+
+`/bootstrap/fetchBootstrap` : this request seems to get an user model diff
+with only the info requested in the `bootstrap_fetch_types` field. i might
+map these types out later, for now let's just request what the game
+requests. device name is also sent to the server here. no big deal, we can
+just make a list of known devices. types are `[2,3,4,5,9,10]` in this
+particular request. note that this is not a normal UserModelResponse.
+it has some extra fetch bootstrap fields
+
+I found a list of valid device names here https://support.google.com/googleplay/answer/1727131?hl=en-GB
+
+this is how the game gets the device name: https://docs.unity3d.com/ScriptReference/SystemInfo-deviceModel.html
+which would be the 4th column of the csv above
+
+I also noticed that the device_name was only introduced after the first
+few updates, the first binary I dumped didn't have it
+
+`/navi/tapLovePoint` : this is sent when you touch your waifu and get love
+points, it contains the same character id used in setFavoriteMember and
+returns what looks like a UserModelResponse
+
+`/navi/saveUserNaviVoice` : this takes some id (100010004) that doesn't
+seem to come from previous responses and returns a UserModelResponse.
+it's used to refresh the voices map in the UserModel. not sure what those
+voices do, maybe it just updates which menus are unlocked?
+
+`/trainingTree/fetchTrainingTree` and `/trainingTree/levelUpCard` are
+for the tutorial on leveling up your card. nothing special, you just need
+your card master id
+
+`/trainingTree/activateTrainingTreeCell` I think this is when you do
+the member training and spend your AP? not sure where the cell id's come
+from, at first I thought it was member master id's but nope, in the user
+model they go from 1-9 and then jump to like 101+
+
+`/card/updateCardNewFlag` I think this updates the two awakening booleans
+in the user model's card info, which switched to true after the training.
+again, this returns a UserModelResponse
+
+`/communicationMember/finishUserStorySide` this is probably when you get
+the dialogue with your waifu. similar to the main story finish request,
+nothing to see here
+
+`/liveDeck/saveDeckAll` and `/liveDeck/saveSuit` , I guess this is where
+you set up your live team. I think the `squad_dict` is the three teams
+you can switch between, but I can't figure out what `card_with_suit`
+signifies. it's a map of card id's to either null or their suit id which
+is the same as the card id. maybe suit is the outfit? well, I don't need to
+understand anyway for now, I just hardcode the default team the tutorial
+picks for me
+
+note that it's important to update our usermodel at this request so that
+our team is correct in the next live finish requests
+
+`/livePartners/fetch` empty request, returns a list of partners before
+starting the live
+
+while looking at this request I found something pretty funny, they typo'd
+"Partners" in the response class name
+
+```c
+  FetchLiveParntersResponse$$.ctor(iVar1,0);
+  if (((*(byte *)(Class$DotUnder.Serialization + 0xbf) & 2) != 0) &&
+     (*(int *)(Class$DotUnder.Serialization + 0x70) == 0)) {
+    FUN_0087f930();
+  }
+  piVar2 = (int *)Serialization$$TryGetValue(param_1,"partner_select_state");
+
+...
+```
+
+then we have another live start/finish, live partner id is zero
+
+`/gacha/fetchGachaMenu` empty request, this is the scouting tutorial and
+this retrieves the list of scouting pools
+
+`/gacha/draw` is nothing special, you just pass it the gacha id from the
+`gacha_draws` field in the previous request
+
+yet another fetchBootstrap request, with the same id's as the first one
+
+`/tutorial/phaseEnd` this concludes the tutorial. empty request, returns a
+UserModelResponse
+
+then it calls `/dataLink/fetchGameServiceData` which is similar to the
+request it does at the very beginning, however I noticed it does some
+interesting stuff with the response in
+`PlatformGameServiceDM.__c__DisplayClass1_1$$_FetchState_b__1`
+
+```c
+    iVar2 = FetchGameServiceDataResponse$$get_Data(param_2,0);
+    if (iVar2 == 0) {
+      FUN_0089d750(0);
+    }
+    uVar3 = UserLinkData$$get_AuthorizationKey(iVar2,0);
+    if (((*(byte *)(Class$System.Convert + 0xbf) & 2) != 0) &&
+       (*(int *)(Class$System.Convert + 0x70) == 0)) {
+      FUN_0087f930();
+    }
+    uVar3 = Convert$$FromBase64String(uVar3,0);
+    uVar5 = Lib$$XorBytes(uVar5,uVar3,0);
+    if (iVar1 == 0) {
+      FUN_0089d750(0);
+    }
+    UserLinkData$$set_ServiceUserCommonKey(iVar1,uVar5,0);
+    iVar1 = *(int *)(param_1 + 0xc);
+    if (iVar1 == 0) {
+      FUN_0089d750(0);
+    }
+```
+
+it seems that `service_user_common_key` is actually set client-side by
+xoring `authorization_key` with something. most likely the random bytes
+from the mask sent with the request. after checking, I noticed that it
+also does this with FetchStateBeforeLogin. seems like it's saved as the
+PW field in local storage in `UserKey$$SetIDPW` in
+`PlatformGameService$$Migrate`. this PW is then retrieved on login,
+and passed to `DMHttpApi.__c__DisplayClass14_0$$_Login_b__0` as third
+param, which means this is our sessionKey for subsequent login requests
+
+well, we have a bit of a problem here. my fetchGameServiceData request
+with the random service id doesn't return anything here, however you might
+remember that when the game receives the startup response it does the same
+`UserKey$$SetIDPW` call, which might mean that this authorization key is
+just the one from when we called startup. either way, I want to investigate
+whether I'm missing a request that associates the account with my service
+id or if it's just doing that because it's an invalid service id
+
+yep, seems like I was missing a `/dataLink/linkOnStartUpGameService` call,
+all good. let's move to the next request
+
+fetchBootstrap call with types 2,3,4,5,9,10,11 . this returns a list
+of login bonuses in `fetch_bootstrap_login_bonus_response` .
+
+`/loginBonus/readLoginBonus` called once for each login bonus id, empty
+response. I guess this marks the various login bonus splashscreens as read.
+
+seems like it's called on `event_2d_login_bonuses` with type 3,
+`beginner_login_bonuses` with type 2, `login_bonuses` with type 1. not
+sure what happens with the other 3 pools of login bonuses
+
+then we have another saveUserNaviVoice call with id's 100010123, 100010113
+and a fetchBootstrap with the usual id's
+
+`/notice/fetchNoticeDetail` this is called on one of the `super_notices` .
+from fetchBootstrap. the way it picks which super notice id to use is
+
+```c
+void HomeDM$$GetSuperNoticeDetailMasterId(void)
+
+{
+  undefined4 uVar1;
+  
+  if (DAT_03706ed3 == '\0') {
+    FUN_00871ed4(0x4de5);
+    DAT_03706ed3 = '\x01';
+  }
+  uVar1 = NoticeDM$$GetUnreadSuperNoticeIds(0);
+  FUN_010f5084(uVar1,Method$Enumerable.LastOrDefault()_int_);
+  return;
+}
+```
+
+which means it gets the last in the list
+
+`/notice/fetchNotice` empty request, it just gets news and whatnot
+
+another saveUserNaviVoice with id's 100010105,100010038,100010018
+
+`/present/fetch` call, empty request. gets a list of pending presents
+
+saveRuleDescription with id 20
+
+`/present/receive` with a list of id's from `/present/fetch` to claim all
+gifts
+
+yet another fetchBoostrap call with types 2,3,4,5,9,10
+
+... and that's it, that's pretty much all you need to start a new account,
+log in, complete the tutorial and get your daily rewards. this pretty much
+concludes what I wanted to achieve for the time being, but I will update
+this article whenever I find anything interesting
+
+you can check out my client here and use it as a reference for your own
+https://github.com/Francesco149/todokete
+
+to be continued...?
