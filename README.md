@@ -5395,4 +5395,21 @@ xCheckReservedLock, xFileControl, xSectorSize, xDeviceCharacteristics,
 xShmMap, xShmLock, xShmBarrier, xShmUnmap, xFetch, xUnfetch, are all
 passthrough so yeah, all we need to do is figure out how xRead works
 
+so looking back at xOpen, the loop scans zName. what I named firstChar
+is actually currentChar. if it finds a dot at the beginning of the string
+it returns an error, otherwise it keeps scanning. when it finds a dot,
+it increases i
+
+the other branch of the if is checking if characters are digit by
+subtracting 0x30 ('0') and checking if they're in range 0-9 . essentially
+it's expecting only digits at the beginning and then waiting for a space,
+if this is not respected it returns an error, otherwise it calls
+xOpen with the text after the space instead of zName. then it initializes
+the extra part of the sqlite3_file struct with pMethods and three ints.
+these three ints are parsed from the first part of the string during the
+loops prior to finding a space
+
+so essentially, it's just parsing the string with the three key uints
+from before and saving them into the sqlite3_file struct
+
 to be continued...?
