@@ -5412,4 +5412,109 @@ loops prior to finding a space
 so essentially, it's just parsing the string with the three key uints
 from before and saving them into the sqlite3_file struct
 
+ok I made a mistake labeling defaultMethods in xRead, the pointers confused
+me. it's actually indexing into the extra sqlite3 file struct. that makes
+more sense
+
+```c
+int file_xRead(sqlite3_file *file,byte *dst,int iAmt,int64_t iOfst)
+
+{
+  uint uVar1;
+  uint uVar2;
+  ulonglong uVar3;
+  int xReadResult;
+  int rand;
+  int iVar4;
+  int key3;
+  klbvfs_file *klbfile;
+  int key2;
+  int rand_seed;
+  int iVar5;
+  int key1;
+  
+  xReadResult = (**(code **)(*(int *)((int)&file->pMethods + g_defaultSzOsFile) + 8))
+                          (file,dst,iAmt,iOfst);
+  if (xReadResult == 0) {
+    key2 = 0x343fd;
+    rand = 0x269ec3;
+    klbfile = (klbvfs_file *)((int)&file->pMethods + g_defaultSzOsFile);
+    key1 = klbfile->key1;
+                    /* checks if iOfst is zero? */
+    if ((int)(iOfst._4_4_ - (uint)((int)iOfst == 0)) < 0) {
+      rand = 0;
+      key2 = klbfile->key2;
+      key3 = klbfile->key3;
+      rand_seed = 1;
+    }
+    else {
+      key3 = 1;
+      rand_seed = 0;
+      uVar3 = iOfst;
+      do {
+        if ((uVar3 & 1) != 0) {
+          rand_seed = key3 * rand + rand_seed;
+          key3 = key3 * key2;
+        }
+        uVar1 = (uint)(uVar3 >> 0x21);
+        uVar2 = (uint)((byte)(uVar3 >> 0x20) & 1) << 0x1f | (uint)uVar3 >> 1;
+        uVar3 = CONCAT44(uVar1,uVar2);
+        rand = key2 * rand + rand;
+        key2 = key2 * key2;
+      } while ((uVar2 | uVar1) != 0);
+      rand = 1;
+      iVar4 = 0x269ec3;
+      key1 = key3 * key1 + rand_seed;
+      key2 = 0;
+      rand_seed = 0x343fd;
+      uVar3 = iOfst;
+      do {
+        if ((uVar3 & 1) != 0) {
+          key2 = rand * iVar4 + key2;
+          rand = rand * rand_seed;
+        }
+        uVar1 = (uint)(uVar3 >> 0x21);
+        uVar2 = (uint)((byte)(uVar3 >> 0x20) & 1) << 0x1f | (uint)uVar3 >> 1;
+        uVar3 = CONCAT44(uVar1,uVar2);
+        iVar4 = rand_seed * iVar4 + iVar4;
+        rand_seed = rand_seed * rand_seed;
+      } while ((uVar2 | uVar1) != 0);
+      key2 = rand * klbfile->key2 + key2;
+      key3 = klbfile->key3;
+      rand_seed = 1;
+      rand = 0;
+      iVar4 = 0x269ec3;
+      iVar5 = 0x343fd;
+      do {
+        if ((iOfst & 1U) != 0) {
+          rand = rand_seed * iVar4 + rand;
+          rand_seed = rand_seed * iVar5;
+        }
+        uVar1 = (uint)((ulonglong)iOfst >> 0x21);
+        uVar2 = (uint)((byte)((ulonglong)iOfst >> 0x20) & 1) << 0x1f | (uint)iOfst >> 1;
+        iOfst = CONCAT44(uVar1,uVar2);
+        iVar4 = iVar5 * iVar4 + iVar4;
+        iVar5 = iVar5 * iVar5;
+      } while ((uVar2 | uVar1) != 0);
+    }
+    if (0 < iAmt) {
+      rand = rand_seed * key3 + rand;
+      do {
+        uVar1 = (uint)key1 >> 0x18;
+        key1 = key1 * 0x343fd + 0x269ec3;
+        iAmt = iAmt + -1;
+        *dst = *dst ^ (byte)((uint)key2 >> 0x18) ^ (byte)uVar1 ^ (byte)((uint)rand >> 0x18);
+        rand = rand * 0x343fd + 0x269ec3;
+        key2 = key2 * 0x343fd + 0x269ec3;
+        dst = dst + 1;
+      } while (iAmt != 0);
+    }
+  }
+  return xReadResult;
+}
+```
+
+ok so as i thought it seems to be doing stuff with known pseudorandom
+algorithm, using the 3 uints as a key
+
 to be continued...?
