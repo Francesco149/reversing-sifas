@@ -4637,4 +4637,762 @@ this article whenever I find anything interesting
 you can check out my client here and use it as a reference for your own
 https://github.com/Francesco149/todokete
 
+# a look at the assets
+
+I was looking to extract some assets from the game. not sure if this is
+standard unity asset packaging but here's how they're laid out
+
+`data/data/com.klab.lovelive.allstars/files/files` contains a plain text
+file named `fe12c8ba-04b2-41b6-b1af-ffee5ee59c43`. this probably changes
+for each build. it contains a map of assets to sha-1 hashes:
+
+```
+1
+card:100011001  eb73a5908f31c052f9432b37aab01b0614b699ae
+card:100011002  245b5bd66c1918d963348fcbcc14d3273b8ba46e
+card:100012001  6ba14134894fd894c811ce7fde599d76eb8d3d9f
+card:100013001  a30cfa2da9e1b74443d5460f333c09eb33a39198
+card:100021001  af7d4f64e1fc4cc64ace920c0fb297304e3fb8ab
+card:100021002  c7fc1ff28d960c32bab8612ba45d130ba37c783a
+
+....
+
+
+live:1000101  97fadca11fac62bc200b4ce77a0120ac594c33cd
+live:1000102  51dda48f13b89fab1163b07eec1cf51caa427d66
+live:1000103  614f5b6f9462fdcdcda75dc57fd13b84963e6490
+live:1000201  420a0779aa8dfcb053bb59e680db1067891c4f91
+live:1000202  41c8f8417c090c2c2ad1e523cc19dc8286d67510
+live:1000203  eb8db1cf4dfae2551fbdf10eabd178a4712e313e
+live:1000401  a350bc00e678a4d16bd7dc15e36823047f4b1c45
+
+...
+
+love:101_10 d3631e84fa5f19443c0db73ff17d65ede5c7a49c
+love:101_20 840d74373ff6f226c00f0f4661719167147d9d34
+love:101_30 e4004a4444c703c5691e9bb286790c1f170a2929
+love:101_40 7bffbefd74c7e5da7b41282f85cdeba227e3bebc
+love:101_50 fe37eb04c5d58cd83a09d819ad7953b26d6fcff0
+love:102_10 2836059242bf615daf4a36dd64eb990e020cb102
+love:102_20 f81e912c293e1967ea62de4a29f27e058c93d04a
+love:102_30 befb476da8ee0be8dd5209af56e91547296ff2c2
+
+...
+
+main  6c84c160fe1b5b2834c0b07d5685bd21902d757b
+music:10001 7c20bbff2d642da68b7956f8288b0ceddfb559c5
+music:10002 6c942bfbd7818f1d3ff03894396224eb6280f9bb
+music:10004 ad9c64e29a822d51af5a4983abb11f23f9414cfa
+music:10005 1f1fc9cc0b9ee042b7c0594e4c9e760200f7f319
+music:10011 1f282efa1d9e04303a2410efd615f391d311db3a
+music:10014 ab230a60f63d353b54f1a60624f2ef6909233b63
+music:10015 415ba87cc3aa0e1d89e06991893d6a63e135af80
+music:10016 af02ed318a935f64e943586d53039583466f7f85
+
+...
+
+op  f73a0a9fee3ae140878114a3e88702e5efb3fddd
+story-voice:ES/0002/es_0002_01  9c5f38f7b76bf38244094f29f8c085e89de9abef
+story-voice:ES/0002/es_0002_02  96c026d971b20de5f43543389d844ccddb34ca43
+story-voice:ES/0002/es_0002_03  5118b9ac408ed0aad1841d2b6ed62488d61fd03d
+story-voice:ES/0002/es_0002_04  6d93f972fccccbaedaa0515f5cbd0cd7c253f188
+story-voice:ES/0002/es_0002_05  c68d4cb4eea1811f5a8fdf1af1cef47abf41778c
+story-voice:ES/0002/es_0002_06  49de9ef73e44512311b17c65e18b58ceda7bedb6
+story-voice:ES/0002/es_0002_07  34e3841eb8306cc11258fe836e10e14bdd58e98c
+story-voice:MES/0001/mes_0001_01  36804fd9971c80b461cab9c5f8d953d0fe8a2272
+story-voice:MES/0001/mes_0001_02  028781c7b118237070bf7fdc5504f59aedd80fa9
+story-voice:MES/0001/mes_0001_03  e4e6cda8dba865379831922b073a0b2709568cf9
+story-voice:MES/0001/mes_0001_04  893560c1540e1c0355d2794d4d2c557ef62fcf52
+
+...
+
+suit:100011001  00a503790212b6aa66b0a666c98e45ea02c5ba35
+suit:100012001  1d05237d863d748e68d034a1152e0ca6fc346f90
+suit:100013001  98d5ba50cc24b6005b38f5c13fabeb89ffd6e049
+suit:100021001  65fe1540c0b1d7fe8db6ae9b8b77bffdc5bf4037
+suit:100022001  cc239b4857ecda8aea5a40a73b9acf4cd0cf476a
+suit:100023001  ad3cafaf92fc9d995418fbcc1896039fd7495a98
+suit:100031001  1d829f5a4e93aa166887d181c33ecdd75254a0bd
+suit:100032001  e5aff74749b4bc2f90c45484117bf3b42d9546b4
+suit:100033001  7907ae9e67e50ff3b883993be481b2b3aa7f5b4c
+
+...
+
+```
+
+i see there's a file that starts with masterdata.db, let's search for this
+string in the game's binary
+
+sure enough, it seems to be some kind of custom encrypted database,
+a function named ```Sqlite$$Open``` references that string
+
+```c
+  iVar1 = Sqlite$$HasDefaultDb();
+  if (iVar1 == 1) {
+    Cache$$Clear(0);
+    Cache$$ClearShortLife(0);
+    if (((*(byte *)(Class$DotUnder.MasterData + 0xbf) & 2) != 0) &&
+       (*(int *)(Class$DotUnder.MasterData + 0x70) == 0)) {
+      FUN_0087f998();
+    }
+    uVar2 = MasterData$$DbPath("masterdata.db",0);
+    uVar3 = MasterData$$GetSqliteKey("masterdata.db",0,0);
+    if (((*(byte *)(Class$DotUnder.Sqlite + 0xbf) & 2) != 0) &&
+       (*(int *)(Class$DotUnder.Sqlite + 0x70) == 0)) {
+      FUN_0087f998();
+    }
+    Sqlite$$Add("defaultdb",uVar2,uVar3);
+    if (param_1 == 0) {
+      FUN_0089d7b8(0);
+    }
+```
+
+ok so it just seems to be a random 32-bytes key generated and stored
+in the shared prefs xml
+
+```c
+undefined4 MasterData$$GetSqliteMasterKey(void)
+
+{
+  int iVar1;
+  undefined4 uVar2;
+  undefined4 uVar3;
+  
+  if (DAT_03704bde == '\0') {
+    FUN_00871f3c(0x69b6);
+    DAT_03704bde = '\x01';
+  }
+  if (((*(byte *)(Class$DotUnder.LocalStorage + 0xbf) & 2) != 0) &&
+     (*(int *)(Class$DotUnder.LocalStorage + 0x70) == 0)) {
+    FUN_0087f998();
+  }
+  iVar1 = PlayerPrefs$$HasKey("SQ",0);
+  if (iVar1 == 1) {
+    if (((*(byte *)(Class$DotUnder.LocalStorage + 0xbf) & 2) != 0) &&
+       (*(int *)(Class$DotUnder.LocalStorage + 0x70) == 0)) {
+      FUN_0087f998();
+    }
+    uVar2 = PlayerPrefs$$GetString("SQ",StringLiteral_73,0);
+    if (((*(byte *)(Class$System.Convert + 0xbf) & 2) != 0) &&
+       (*(int *)(Class$System.Convert + 0x70) == 0)) {
+      FUN_0087f998();
+    }
+    uVar2 = Convert$$FromBase64String(uVar2,0);
+    return uVar2;
+  }
+  if (((*(byte *)(Class$DotUnder.DMCryptography + 0xbf) & 2) != 0) &&
+     (*(int *)(Class$DotUnder.DMCryptography + 0x70) == 0)) {
+    FUN_0087f998();
+  }
+  uVar2 = DMCryptography$$RandomBytes(0x20,0);
+  if (((*(byte *)(Class$System.Convert + 0xbf) & 2) != 0) &&
+     (*(int *)(Class$System.Convert + 0x70) == 0)) {
+    FUN_0087f998();
+  }
+  uVar3 = Convert$$ToBase64String(uVar2,0);
+  if (((*(byte *)(Class$DotUnder.LocalStorage + 0xbf) & 2) != 0) &&
+     (*(int *)(Class$DotUnder.LocalStorage + 0x70) == 0)) {
+    FUN_0087f998();
+  }
+  LocalStorage$$SetString("SQ",uVar3);
+  return uVar2;
+}
+```
+
+it later calls "GetRawSqliteKey" and passes it "masterdata.db" and the
+master key bytes
+
+this appears to do a hmac-sha1 on the masterdata.db string using the
+master key as the key
+
+```c
+  masterdataDbUtf8 =
+       (**(code **)(*piVar2 + 0x148))(piVar2,masterdataDb,*(undefined4 *)(*piVar2 + 0x14c));
+  if (((*(byte *)(Class$DotUnder.DMCryptography + 0xbf) & 2) != 0) &&
+     (*(int *)(Class$DotUnder.DMCryptography + 0x70) == 0)) {
+    FUN_0087f998();
+  }
+  local_28 = 0;
+  sha1 = DMCryptography$$HmacSha1(masterdataDbUtf8,masterKeyBytes,0);
+  sha1bytes = sha1 + 0x10;
+```
+
+it then allocates a 12-byte array made up of 3 uint's and copies the first
+12 bytes of the hmac-sha1 hash to it, encoded as uint's
+
+```c
+  uintArray = InstantiateArray(Class$uint[],3);
+  i = 0;
+  do {
+    j = 0;
+    ithUint = (uint *)(uintArray + i * 4 + 0x10);
+    do {
+      if (uintArray == 0) {
+        NullPointerExceptionMaybe(0);
+      }
+      if (*(uint *)(uintArray + 0xc) <= i) {
+        masterdataDbUtf8 = IndexOutOfRangeException();
+        Throw(masterdataDbUtf8,0,0);
+      }
+      shiftedUint = *ithUint << 8;
+      *ithUint = shiftedUint;
+      if (*(uint *)(uintArray + 0xc) <= i) {
+        masterdataDbUtf8 = IndexOutOfRangeException();
+        Throw(masterdataDbUtf8,0,0);
+        shiftedUint = *ithUint;
+      }
+      if (sha1 == 0) {
+        NullPointerExceptionMaybe(0);
+      }
+      if (*(uint *)(sha1 + 0xc) <= (uint)(k + j)) {
+        masterdataDbUtf8 = IndexOutOfRangeException();
+        Throw(masterdataDbUtf8,0,0);
+      }
+      orMask = (byte *)(sha1bytes + j);
+      j = j + 1;
+      *ithUint = shiftedUint | *orMask;
+    } while (j != 4);
+    i = i + 1;
+    sha1bytes = sha1bytes + 4;
+    k = k + 4;
+  } while (i != 3);
+  return uintArray;
+```
+
+later, in GetSqliteKey, it formats these 3 uint's as a string, separated
+by dots
+
+```c
+  uintsKey = MasterData$$GetRawSqliteKey(masterdataDb,masterKeyBytes);
+  if (uintsKey == 0) {
+    NullPointerExceptionMaybe(0);
+  }
+  if (*(int *)(uintsKey + 0xc) == 0) {
+    masterKeyBytes = IndexOutOfRangeException();
+    Throw(masterKeyBytes,0,0);
+  }
+  uintsKeyData = *(undefined4 *)(uintsKey + 0x10);
+  masterKeyBytes = FUN_008ae39c(Class$uint,&uintsKeyData);
+  if (*(uint *)(uintsKey + 0xc) < 2) {
+    secondUintClass = IndexOutOfRangeException();
+    Throw(secondUintClass,0,0);
+  }
+  secondUint = *(undefined4 *)(uintsKey + 0x14);
+  secondUintClass = FUN_008ae39c(Class$uint,&secondUint);
+  if (*(uint *)(uintsKey + 0xc) < 3) {
+    thirdUintClass = IndexOutOfRangeException();
+    Throw(thirdUintClass,0,0);
+  }
+  thirdUint = *(undefined4 *)(uintsKey + 0x18);
+  thirdUintClass = FUN_008ae39c(Class$uint,&thirdUint);
+  String$$Format("{0}.{1}.{2}",masterKeyBytes,secondUintClass,thirdUintClass,0);
+```
+
+`Sqlite$$Add` calls OpenDB with the key string and the path of the db file
+paired in a single string, separated by a dash
+
+```c
+void Sqlite$$Add(undefined4 param_1,undefined4 masterDataPath,undefined4 keyUintsString)
+
+{
+  undefined4 uVar1;
+  int iVar2;
+  
+  if (DAT_0370745e == '\0') {
+    FUN_00871f3c(0x9154);
+    DAT_0370745e = '\x01';
+  }
+  if (((*(byte *)(Class$DotUnder.Sqlite + 0xbf) & 2) != 0) &&
+     (*(int *)(Class$DotUnder.Sqlite + 0x70) == 0)) {
+    FUN_0087f998();
+  }
+  Sqlite$$Remove(param_1);
+  uVar1 = String$$Format("{0}-{1}",keyUintsString,masterDataPath,0);
+  uVar1 = Sqlite$$OpenDB(uVar1,"klb_vfs");
+  iVar2 = **(int **)(Class$DotUnder.Sqlite + 0x5c);
+  if (iVar2 == 0) {
+    NullPointerExceptionMaybe(0);
+  }
+  FUN_022e73e8(iVar2,param_1,uVar1,Method$Dictionary_string_-IntPtr_.Add());
+  iVar2 = String$$op_Equality(param_1,"defaultdb",0);
+  if (iVar2 != 1) {
+    return;
+  }
+  if (((*(byte *)(Class$DotUnder.Sqlite + 0xbf) & 2) != 0) &&
+     (*(int *)(Class$DotUnder.Sqlite + 0x70) == 0)) {
+    FUN_0087f998();
+  }
+  *(undefined4 *)(*(int *)(Class$DotUnder.Sqlite + 0x5c) + 4) = uVar1;
+  return;
+}
+```
+
+it seems that `klb_vfs` is a vfs module for sqlite3:
+
+```c
+  if ((klbVfsString != 0) &&
+     (iVar1 = *(int *)(Class$DotUnder.Sqlite + 0x5c), *(char *)(iVar1 + 8) == '\0')) {
+    if (((*(byte *)(Class$DotUnder.Sqlite + 0xbf) & 2) != 0) &&
+       (*(int *)(Class$DotUnder.Sqlite + 0x70) == 0)) {
+      FUN_0087f998();
+      iVar1 = *(int *)(Class$DotUnder.Sqlite + 0x5c);
+    }
+    *(undefined *)(iVar1 + 8) = 1;
+    KLBVFS$$klbvfs_register(0);
+  }
+  local_1c = 0;
+  keyPathPairUtf8 = StringExtensionMethods$$ToUtf8(keyPathPair,1);
+  klbVfsStringUtf8 = StringExtensionMethods$$ToUtf8(klbVfsString,1);
+  if (((*(byte *)(Class$Forfeit.Sqlite3 + 0xbf) & 2) != 0) &&
+     (*(int *)(Class$Forfeit.Sqlite3 + 0x70) == 0)) {
+    FUN_0087f998();
+  }
+  local_20 = Sqlite3$$sqlite3_open_v2(keyPathPairUtf8,&local_1c,1,klbVfsStringUtf8,0);
+```
+
+let's take a look at libklbvfs.so . it calls `sqlite3_vfs_find` with NULL
+in `klbvfs_register` and assigns it to some global. then it calls
+`sqlite3_vfs_register` on some other global. these globals actually overlap
+and it's just one big `sqlite3_vfs` struct
+
+sqlite doc:
+
+```
+The sqlite3_vfs_find() interface returns a pointer to a VFS given its name.
+Names are case sensitive. Names are zero-terminated UTF-8 strings.
+If there is no match, a NULL pointer is returned.
+```
+
+what happens if we pass null though?
+
+```
+If zVfsName is NULL then the default VFS is returned.
+```
+
+ok so it's just the default sqlite vfs
+
+ok so this is the struct it's passing to vfs register:
+https://www.sqlite.org/c3ref/vfs.html
+
+we can map it out and see which function is which, and here's our register
+function documented
+
+I also mapped the `sqlite3_file` and `sqlite3_io_methods` structs which
+are passed to these methods and documented here
+
+https://www.sqlite.org/c3ref/file.html
+
+https://www.sqlite.org/c3ref/io_methods.html
+
+
+```c
+void klbvfs_register(void)
+
+{
+  sqlite3_vfs_00012004.pAppData = (sqlite3_vfs *)sqlite3_vfs_find(0);
+  DAT_00012080 = (sqlite3_vfs_00012004.pAppData)->szOsFile;
+  sqlite3_vfs_00012004.szOsFile = DAT_00012080 + 0x10;
+  sqlite3_vfs_register(&sqlite3_vfs_00012004,0);
+  return;
+}
+```
+
+ok, so it's most likely a thin layer over the default vfs
+
+what's this szOsFile stuff though?
+
+```
+The szOsFile field is the size of the subclassed sqlite3_file structure
+used by this VFS.
+```
+
+ok, so it's the default szOsFile + 16 for the klab vfs, let's rename it.
+this also means that the `sqlite3_file` struct has 16 extra bytes at the
+end which I will add as unknown fields
+
+
+```c
+void klbvfs_register(void)
+
+{
+  sqlite3_vfs_00012004.pAppData = (sqlite3_vfs *)sqlite3_vfs_find(0);
+  g_defaultSzOsFile = (sqlite3_vfs_00012004.pAppData)->szOsFile;
+  sqlite3_vfs_00012004.szOsFile = g_defaultSzOsFile + 0x10;
+  sqlite3_vfs_register(&sqlite3_vfs_00012004,0);
+  return;
+}
+```
+
+now if we take a look at the struct memory region we can map out all the
+unnamed functions it points to
+
+```c
+                             sqlite3_vfs_00012004.szOsFile                   XREF[1,2]:   klbvfs_register:00010620(*), 
+                             sqlite3_vfs_00012004.pAppData                                klbvfs_register:0001060c(W), 
+                             sqlite3_vfs_00012004                                         klbvfs_register:0001061c(W)  
+        00012004 02 00 00        sqlite3_
+                 00 00 00 
+                 00 00 00 
+           00012004 02 00 00 00     int       2h                      iVersion                          XREF[1]:     klbvfs_register:00010620(*)  
+           00012008 00 00 00 00     int       0h                      szOsFile                          XREF[1]:     klbvfs_register:0001061c(W)  
+           0001200c 00 04 00 00     int       400h                    mxPathname
+           00012010 00 00 00 00     sqlite3_  00000000                pNext
+           00012014 c4 0b 01 00     char *    s_klb_vfs_00010bc4      zName         = "klb_vfs"
+           00012018 00 00 00 00     sqlite3_  00000000                pAppData                          XREF[1]:     klbvfs_register:0001060c(W)  
+           0001201c 38 06 01 00     void *    FUN_00010638            xOpen
+           00012020 20 07 01 00     void *    LAB_00010720            xDelete
+           00012024 2c 07 01 00     void *    FUN_0001072c            xAccess
+           00012028 7c 07 01 00     void *    FUN_0001077c            xFullPathname
+           0001202c e8 07 01 00     void *    LAB_000107e8            xDlOpen
+           00012030 f4 07 01 00     void *    LAB_000107f4            xDlError
+           00012034 00 08 01 00     void *    LAB_00010800            xDlSym
+           00012038 0c 08 01 00     void *    LAB_0001080c            xDlClose
+           0001203c 18 08 01 00     void *    LAB_00010818            xRandomness
+           00012040 24 08 01 00     void *    LAB_00010824            xSleep
+           00012044 30 08 01 00     void *    LAB_00010830            xCurrentTime
+           00012048 3c 08 01 00     void *    LAB_0001083c            xGetLastError
+           0001204c 48 08 01 00     void *    LAB_00010848            xCurrentTime
+           00012050 00 00 00 00     void *    00000000                xNextSystemC
+
+```
+
+let's take a look at xOpen
+
+```c
+int xOpen(sqlite3_vfs *vfs,char *zName,sqlite3_file *file,int flags,int *pOutFlags)
+
+{
+  sqlite3_io_methods **ppsVar1;
+  int i;
+  sqlite3_io_methods *local_28 [4];
+  char firstChar;
+  
+  zName = zName + 1;
+  i = 0;
+  local_28[1] = (sqlite3_io_methods *)0x0;
+  local_28[0] = (sqlite3_io_methods *)0x0;
+  local_28[2] = (sqlite3_io_methods *)0x0;
+  do {
+    firstChar = zName[-1];
+    if (firstChar == '.') {
+      if (1 < i) {
+        return 1;
+      }
+      i = i + 1;
+    }
+    else {
+      if (9 < ((uint)(byte)firstChar - 0x30 & 0xff)) {
+        if (i != 2 || firstChar != ' ') {
+          return 1;
+        }
+        i = (*(code *)vfs->pAppData->xOpen)(vfs->pAppData,zName,file,flags,pOutFlags);
+        ppsVar1 = (sqlite3_io_methods **)((int)&file->pMethods + g_defaultSzOsFile);
+        *ppsVar1 = file->pMethods;
+        ppsVar1[1] = local_28[0];
+        ppsVar1[2] = local_28[1];
+        ppsVar1[3] = local_28[2];
+        file->pMethods = (sqlite3_io_methods *)0x11ecc;
+        return i;
+      }
+      local_28[i] = (sqlite3_io_methods *)((uint)(byte)firstChar + (int)local_28[i] * 10 + -0x30);
+    }
+    zName = zName + 1;
+  } while( true );
+}
+```
+
+uh oh seems like the extra bytes at the end of the file structs are
+confusing the decompiler, let's try to define them as a separate 16 byte
+struct and retype ppsVar1 to it
+
+```c
+int xOpen(sqlite3_vfs *vfs,char *zName,sqlite3_file *file,int flags,int *pOutFlags)
+
+{
+  klbvfs_file *klbfile;
+  int i;
+  klbvfs_file newKlbfile;
+  char firstChar;
+  
+  zName = zName + 1;
+  i = 0;
+  newKlbfile.unk1 = 0;
+  newKlbfile.pMethods = (sqlite3_io_methods *)0x0;
+  newKlbfile.unk2 = 0;
+  do {
+    firstChar = zName[-1];
+    if (firstChar == '.') {
+      if (1 < i) {
+        return 1;
+      }
+      i = i + 1;
+    }
+    else {
+      if (9 < ((uint)(byte)firstChar - 0x30 & 0xff)) {
+        if (i != 2 || firstChar != ' ') {
+          return 1;
+        }
+        i = (*(code *)vfs->pAppData->xOpen)(vfs->pAppData,zName,file,flags,pOutFlags);
+        klbfile = (klbvfs_file *)((int)&file->pMethods + g_defaultSzOsFile);
+        klbfile->pMethods = file->pMethods;
+        *(sqlite3_io_methods **)&klbfile->unk1 = newKlbfile.pMethods;
+        klbfile->unk2 = newKlbfile.unk1;
+        klbfile->unk3 = newKlbfile.unk2;
+        file->pMethods = (sqlite3_io_methods *)0x11ecc;
+        return i;
+      }
+      (&newKlbfile.pMethods)[i] =
+           (sqlite3_io_methods *)
+           ((uint)(byte)firstChar + (int)(&newKlbfile.pMethods)[i] * 10 + -0x30);
+    }
+    zName = zName + 1;
+  } while( true );
+}
+```
+
+well that's still terrible but you can tell it's saving the default
+pMethods pointer in the first field and zeroing the other 3 fields
+
+then it replaces pMethods with a different table of functions, which
+we can retype to `sqlite3_io_methods` and check out to map the methods
+
+```c
+                             //
+                             // .data.rel.ro 
+                             // SHT_PROGBITS  [0x1ecc - 0x1f17]
+                             // ram: 00011ecc-00011f17
+                             //
+                             sqlite3_io_methods_00011ecc                     XREF[2]:     xOpen:00010700(*), 
+                                                                                          _elfSectionHeaders::00000264(*)  
+        00011ecc 03 00 00        sqlite3_
+                 00 54 08 
+                 01 00 6c 
+           00011ecc 03 00 00 00     int       3h                      iVersion                          XREF[2]:     xOpen:00010700(*), 
+                                                                                                                     _elfSectionHeaders::00000264(*)  
+           00011ed0 54 08 01 00     void *    LAB_00010854            xClose
+           00011ed4 6c 08 01 00     void *    LAB_0001086c            xRead
+           00011ed8 3c 0a 01 00     void *    LAB_00010a3c            xWrite
+           00011edc 54 0a 01 00     void *    LAB_00010a54            xTruncate
+           00011ee0 6c 0a 01 00     void *    LAB_00010a6c            xSync
+           00011ee4 84 0a 01 00     void *    LAB_00010a84            xFileSize
+           00011ee8 9c 0a 01 00     void *    LAB_00010a9c            xLock
+           00011eec b4 0a 01 00     void *    LAB_00010ab4            xUnlock
+           00011ef0 cc 0a 01 00     void *    LAB_00010acc            xCheckReserv
+           00011ef4 e4 0a 01 00     void *    LAB_00010ae4            xFileControl
+           00011ef8 fc 0a 01 00     void *    LAB_00010afc            xSectorSize
+           00011efc 14 0b 01 00     void *    LAB_00010b14            xDeviceChara
+           00011f00 2c 0b 01 00     void *    LAB_00010b2c            xShmMap
+           00011f04 44 0b 01 00     void *    LAB_00010b44            xShmLock
+           00011f08 5c 0b 01 00     void *    LAB_00010b5c            xShmBarrier
+           00011f0c 74 0b 01 00     void *    LAB_00010b74            xShmUnmap
+           00011f10 8c 0b 01 00     void *    LAB_00010b8c            xFetch
+           00011f14 a4 0b 01 00     void *    LAB_00010ba4            xUnfetch
+
+```
+
+it also does something weird with pMethods at the end, maybe the first char
+is an index of some sort in that case
+
+anyway, if we check out the replaced file methods we see that most of them
+just pass through the call to the original methods
+
+```c
+void file_xClose(sqlite3_file *param_1)
+
+{
+                    /* WARNING: Could not recover jumptable at 0x00010864. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+  (**(code **)(*(int *)((int)&param_1->pMethods + g_defaultSzOsFile) + 4))();
+  return;
+}
+```
+
+in xRead we can see that it's doing funky stuff with constants used in
+random number generators. this is gonna take a while to decipher
+
+```c
+int file_xRead(sqlite3_file *file,byte *dst,int iAmt,int64_t iOfst)
+
+{
+  uint uVar1;
+  uint uVar2;
+  ulonglong uVar3;
+  int iVar4;
+  int iVar5;
+  int iVar6;
+  int iVar7;
+  sqlite3_io_methods *defaultMethods;
+  void *defaultxRead;
+  int iVar8;
+  int iVar9;
+  void *defaultxWrite;
+  void *defaultxClose;
+  
+  iVar4 = (**(code **)(*(int *)((int)&file->pMethods + g_defaultSzOsFile) + 8))(file);
+  if (iVar4 == 0) {
+    iVar8 = 0x343fd;
+    iVar5 = 0x269ec3;
+    defaultMethods = (sqlite3_io_methods *)((int)&file->pMethods + g_defaultSzOsFile);
+    defaultxClose = defaultMethods->xClose;
+    if ((int)(iOfst._4_4_ - (uint)((int)iOfst == 0)) < 0) {
+      iVar8 = 0;
+      defaultxRead = defaultMethods->xRead;
+      defaultxWrite = defaultMethods->xWrite;
+      iVar5 = 1;
+    }
+    else {
+      iVar7 = 1;
+      iVar9 = 0;
+      uVar3 = iOfst;
+      do {
+        if ((uVar3 & 1) != 0) {
+          iVar9 = iVar7 * iVar5 + iVar9;
+          iVar7 = iVar7 * iVar8;
+        }
+        uVar1 = (uint)(uVar3 >> 0x21);
+        uVar2 = (uint)((byte)(uVar3 >> 0x20) & 1) << 0x1f | (uint)uVar3 >> 1;
+        uVar3 = CONCAT44(uVar1,uVar2);
+        iVar5 = iVar8 * iVar5 + iVar5;
+        iVar8 = iVar8 * iVar8;
+      } while ((uVar2 | uVar1) != 0);
+      iVar5 = 1;
+      iVar6 = 0x269ec3;
+      defaultxClose = (void *)(iVar7 * (int)defaultxClose + iVar9);
+      iVar8 = 0;
+      iVar9 = 0x343fd;
+      uVar3 = iOfst;
+      do {
+        if ((uVar3 & 1) != 0) {
+          iVar8 = iVar5 * iVar6 + iVar8;
+          iVar5 = iVar5 * iVar9;
+        }
+        uVar1 = (uint)(uVar3 >> 0x21);
+        uVar2 = (uint)((byte)(uVar3 >> 0x20) & 1) << 0x1f | (uint)uVar3 >> 1;
+        uVar3 = CONCAT44(uVar1,uVar2);
+        iVar6 = iVar9 * iVar6 + iVar6;
+        iVar9 = iVar9 * iVar9;
+      } while ((uVar2 | uVar1) != 0);
+      defaultxRead = (void *)(iVar5 * (int)defaultMethods->xRead + iVar8);
+      defaultxWrite = defaultMethods->xWrite;
+      iVar5 = 1;
+      iVar8 = 0;
+      iVar9 = 0x269ec3;
+      iVar7 = 0x343fd;
+      do {
+        if ((iOfst & 1U) != 0) {
+          iVar8 = iVar5 * iVar9 + iVar8;
+          iVar5 = iVar5 * iVar7;
+        }
+        uVar1 = (uint)((ulonglong)iOfst >> 0x21);
+        uVar2 = (uint)((byte)((ulonglong)iOfst >> 0x20) & 1) << 0x1f | (uint)iOfst >> 1;
+        iOfst = CONCAT44(uVar1,uVar2);
+        iVar9 = iVar7 * iVar9 + iVar9;
+        iVar7 = iVar7 * iVar7;
+      } while ((uVar2 | uVar1) != 0);
+    }
+    if (0 < iAmt) {
+      iVar8 = iVar5 * (int)defaultxWrite + iVar8;
+      do {
+        uVar1 = (uint)defaultxClose >> 0x18;
+        defaultxClose = (void *)((int)defaultxClose * 0x343fd + 0x269ec3);
+        iAmt = iAmt + -1;
+        *dst = *dst ^ (byte)((uint)defaultxRead >> 0x18) ^ (byte)uVar1 ^ (byte)((uint)iVar8 >> 0x18)
+        ;
+        iVar8 = iVar8 * 0x343fd + 0x269ec3;
+        defaultxRead = (void *)((int)defaultxRead * 0x343fd + 0x269ec3);
+        dst = dst + 1;
+      } while (iAmt != 0);
+    }
+  }
+  return iVar4;
+}
+```
+
+this is probably the bulk of what we need to decipher, but let's take a
+look at the other `sqlite3_vfs` methods
+
+xDelete is a passthrough
+
+```c
+void xDelete(sqlite3_vfs *param_1)
+
+{
+                    /* WARNING: Could not recover jumptable at 0x00010728. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+  (*(code *)param_1->pAppData->xDelete)();
+  return;
+}
+```
+
+xAccess splits zName on space and only passes the text after the space
+through
+
+```c
+undefined4 xAccess(sqlite3_vfs *vfs,char *zName,int flags,int *pResOut)
+
+{
+  char *pSpace;
+  undefined4 res;
+  
+  pSpace = strchr(zName,0x20);
+  if (pSpace != (char *)0x0) {
+                    /* WARNING: Could not recover jumptable at 0x00010770. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+    res = (*(code *)vfs->pAppData->xAccess)(vfs->pAppData,pSpace + 1,flags,pResOut);
+    return res;
+  }
+  return 1;
+}
+```
+
+xFullPathname splits zName on the space. the first part (including the
+space) is copied to zOut, while the rest is passed through as the zName
+parameter. nOut and zOut are adjusted so the result is written after
+the space
+
+```c
+
+undefined4 xFullPathname(sqlite3_vfs *param_1,char *zName,int nOut,char *zOut)
+
+{
+  char *pSpace;
+  undefined4 uVar1;
+  char *sizeUntilSpace;
+  
+  pSpace = strchr(zName,0x20);
+  if (pSpace != (char *)0x0) {
+    sizeUntilSpace = pSpace + (1 - (int)zName);
+    __aeabi_memcpy(zOut,zName,sizeUntilSpace);
+                    /* WARNING: Could not recover jumptable at 0x000107dc. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+    uVar1 = (*(code *)param_1->pAppData->xFullPathname)
+                      (param_1->pAppData,pSpace + 1,nOut - (int)sizeUntilSpace,
+                       zOut + (int)sizeUntilSpace);
+    return uVar1;
+  }
+  return 1;
+}
+```
+
+xDlOpen is a passthrough. same goes for xDlError, xDlSym, xDlClose,
+xRandomness, xSleep, xCurrentTime, xGetLastError, xCurrentTime
+
+```c
+void xDlOpen(sqlite3_vfs *vfs)
+
+{
+                    /* WARNING: Could not recover jumptable at 0x000107f0. Too many branches */
+                    /* WARNING: Treating indirect jump as call */
+  (*(code *)vfs->pAppData->xDlOpen)();
+  return;
+}
+```
+
+let's also look at the other `sqlite3_file` methods
+
+xClose, xWrite, xTruncate, xSync, xFileSize, xLock, xUnlock,
+xCheckReservedLock, xFileControl, xSectorSize, xDeviceCharacteristics,
+xShmMap, xShmLock, xShmBarrier, xShmUnmap, xFetch, xUnfetch, are all
+passthrough so yeah, all we need to do is figure out how xRead works
+
 to be continued...?
