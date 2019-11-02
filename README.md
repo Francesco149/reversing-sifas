@@ -5730,4 +5730,24 @@ passive_skill(id)\n)')
 ...
 ```
 
+this can be simplified to just
+
+```python
+def klbvfs_transform_byte(byte, key):
+  byte ^= i8(key[1] >> 24) ^ i8(key[0] >> 24) ^ i8(key[2] >> 24)
+  key[0] = i32(i32(key[0] * 0x000343fd) + 0x00269ec3)
+  key[2] = i32(i32(key[2] * 0x000343fd) + 0x00269ec3)
+  key[1] = i32(i32(key[1] * 0x000343fd) + 0x00269ec3)
+  return byte
+```
+
+however all this would be extremely slow with random seeks, so all that
+junk with shifting offsets is necessary to recover the rng state at that
+particular offset and only iterate log base 2 of offset times x 3 instead
+of offset times
+
+you can check out a cleaned up implementation that also includes a python
+codec to decrypt with the builtin open function [here](https://github.com/Francesco149/klbvfs)
+
+
 to be continued...?
