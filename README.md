@@ -5749,5 +5749,27 @@ of offset times
 you can check out a cleaned up implementation that also includes a python
 codec to decrypt with the builtin open function [here](https://github.com/Francesco149/klbvfs)
 
+I found some info on how the fast seek calculates the rng state:
+https://www.nayuki.io/page/fast-skipping-in-a-linear-congruential-generator
+
+following that article, it's possible to simplify the seeking into just
+a few lines of code
+
+```python
+def prng_seek(k, offset, mul, add, mod):
+  mul1 = mul - 1
+  modmul = mul1 * mod
+  y = (pow(mul, offset, modmul) - 1) // mul1 * add
+  z = pow(mul, offset, mod) * k
+  return (y + z) % mod
+
+...
+
+  def xRead(self, amount, offset):
+    encrypted = super(KLBVFSFile, self).xRead(amount, offset)
+    k = [prng_seek(k, offset, 0x343fd, 0x269ec3, 2**32) for k in self.key]
+    res, _ = klbvfs_transform(bytearray(encrypted), k)
+    return res
+```
 
 to be continued...?
