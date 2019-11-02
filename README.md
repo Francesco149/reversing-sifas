@@ -5772,4 +5772,398 @@ def prng_seek(k, offset, mul, add, mod):
     return res
 ```
 
+so let's see how the game reads, for example, textures
+
+```c
+uint PackReader$$LoadTextureBytes
+               (undefined4 asset_path,undefined4 caller,undefined4 textureBytesReceiver)
+
+{
+  int assetData;
+  
+  if (DAT_03708d1c == '\0') {
+    FUN_00871f3c(0x7428);
+    DAT_03708d1c = '\x01';
+  }
+  assetData = AssetMasterData$$Get("texture",asset_path,0);
+  if (assetData != 0) {
+    PackReader$$ReadBytes(assetData,textureBytesReceiver,caller);
+  }
+  return (uint)(assetData != 0);
+}
+
+int AssetMasterData$$Get(undefined4 table,undefined4 asset_path)
+
+{
+  int iVar1;
+  undefined4 head;
+  undefined4 size;
+  undefined4 key1;
+  undefined4 key2;
+  int assetData;
+  undefined4 pack_name;
+  undefined4 local_30;
+  undefined4 local_2c [2];
+  
+  if (DAT_03709485 == '\0') {
+    FUN_00871f3c(0x1970);
+    DAT_03709485 = '\x01';
+  }
+  local_2c[0] = 0;
+  local_30 = 0;
+  if (((*(byte *)(Class$DotUnder.MasterData + 0xbf) & 2) != 0) &&
+     (*(int *)(Class$DotUnder.MasterData + 0x70) == 0)) {
+    FUN_0087f998();
+  }
+  pack_name = **(undefined4 **)(Class$DotUnder.MasterData + 0x5c);
+  if (((*(byte *)(Class$DotUnder.Sqlite + 0xbf) & 2) != 0) &&
+     (*(int *)(Class$DotUnder.Sqlite + 0x70) == 0)) {
+    FUN_0087f998();
+  }
+  assetData = 0;
+  pack_name = Sqlite$$GetDb(pack_name,0);
+  iVar1 = IntPtr$$op_Equality(pack_name,0,0);
+  if (iVar1 == 0) {
+    local_2c[0] = 0;
+    local_30 = 0;
+    head = String$$Format("SELECT-pack_name,-head,-size,-key1,-key2-FROM-{0}-WHERE-asset_path-=-?",
+                          table,0);
+    if (((*(byte *)(Class$DotUnder.Sqlite + 0xbf) & 2) != 0) &&
+       (*(int *)(Class$DotUnder.Sqlite + 0x70) == 0)) {
+      FUN_0087f998();
+    }
+    Sqlite$$Prepare(pack_name,head,local_2c,&local_30,0);
+    pack_name = local_2c[0];
+    if (((*(byte *)(Class$DotUnder.Sqlite + 0xbf) & 2) != 0) &&
+       (*(int *)(Class$DotUnder.Sqlite + 0x70) == 0)) {
+      FUN_0087f998();
+    }
+    Sqlite$$BindString(pack_name,1,asset_path,0);
+    iVar1 = AssetMasterData$$Step(local_2c[0]);
+    if (iVar1 == 0) {
+      assetData = 0;
+    }
+    else {
+      pack_name = AssetMasterData$$ColumnString(local_2c[0],0);
+      head = AssetMasterData$$ColumnInt(local_2c[0],1);
+      size = AssetMasterData$$ColumnInt(local_2c[0],2);
+      key1 = AssetMasterData$$ColumnInt(local_2c[0],3);
+      key2 = AssetMasterData$$ColumnInt(local_2c[0],4);
+      assetData = thunk_FUN_008ae7a0(Class$AssetMasterData.Data);
+      Object$$.ctor(assetData,0);
+      *(undefined4 *)(assetData + 8) = pack_name;
+      *(undefined4 *)(assetData + 0xc) = head;
+      *(undefined4 *)(assetData + 0x10) = size;
+      *(undefined4 *)(assetData + 0x14) = key1;
+      *(undefined4 *)(assetData + 0x18) = key2;
+      AssetMasterData$$CheckDone(local_2c[0]);
+    }
+    pack_name = local_2c[0];
+    if (((*(byte *)(Class$Forfeit.Sqlite3 + 0xbf) & 2) != 0) &&
+       (*(int *)(Class$Forfeit.Sqlite3 + 0x70) == 0)) {
+      FUN_0087f998();
+    }
+    Sqlite3$$sqlite3_finalize(pack_name,0);
+  }
+  return assetData;
+}
+```
+
+so first it grabs pack name, head, size key1, key2 from the texture table.
+then it passes it to `PackReader$$ReadBytes`
+
+ReadBytes just starts a thread where the action actually happens
+
+```c
+void PackReader$$ReadBytes(int assetData,int textureBytesReceiver,undefined4 caller)
+
+{
+  int displayClass2_0;
+  undefined4 retryDelay;
+  undefined4 onError;
+  int *pReceiver;
+  undefined4 caller_;
+  undefined4 *pCaller;
+  
+  if (DAT_03708d1d == '\0') {
+    FUN_00871f3c(0x7429);
+    DAT_03708d1d = '\x01';
+  }
+  displayClass2_0 = thunk_FUN_008ae7a0(Class$PackReader.__c__DisplayClass2_0);
+  Object$$.ctor(displayClass2_0,0);
+  if (displayClass2_0 == 0) {
+    NullPointerExceptionMaybe(0);
+    _DAT_00000008 = assetData;
+    NullPointerExceptionMaybe(0);
+    pCaller = (undefined4 *)&DAT_0000000c;
+    _DAT_0000000c = caller;
+    NullPointerExceptionMaybe(0);
+    pReceiver = (int *)&DAT_00000010;
+    _DAT_00000010 = textureBytesReceiver;
+    NullPointerExceptionMaybe(0);
+    assetData = _DAT_00000008;
+  }
+  else {
+    pReceiver = (int *)(displayClass2_0 + 0x10);
+    *pReceiver = textureBytesReceiver;
+    *(int *)(displayClass2_0 + 8) = assetData;
+    pCaller = (undefined4 *)(displayClass2_0 + 0xc);
+    *pCaller = caller;
+  }
+  if (assetData == 0) {
+    retryDelay = thunk_FUN_008ae7a0(Class$System.Exception);
+    Exception$$.ctor(retryDelay,"assetData-is-null",0);
+  }
+  else {
+    if (displayClass2_0 == 0) {
+      NullPointerExceptionMaybe(0);
+    }
+    if (*pReceiver != 0) {
+      retryDelay = MConstant$$get_FopenRetryDelay(0);
+      if (displayClass2_0 == 0) {
+        NullPointerExceptionMaybe(0);
+      }
+      *(undefined4 *)(displayClass2_0 + 0x14) = retryDelay;
+      retryDelay = thunk_FUN_008ae7a0(Class$Func_Action_);
+      Func$$.ctor(retryDelay,displayClass2_0,
+                  Method$PackReader.__c__DisplayClass2_0._ReadBytes_b__0(),
+                  Method$Func_Action_..ctor());
+      onError = thunk_FUN_008ae7a0(Class$Action_Exception_-string_);
+      FUN_0245c41c(onError,displayClass2_0,Method$PackReader.__c__DisplayClass2_0._ReadBytes_b__1(),
+                   Method$Action_Exception_-string_..ctor());
+      if (displayClass2_0 == 0) {
+        NullPointerExceptionMaybe(0);
+      }
+      caller_ = *pCaller;
+      if (((*(byte *)(Class$DotUnder.Concurrency + 0xbf) & 2) != 0) &&
+         (*(int *)(Class$DotUnder.Concurrency + 0x70) == 0)) {
+        FUN_0087f998();
+      }
+      Concurrency$$RunSubthread(retryDelay,onError,caller_,2,0);
+      return;
+    }
+    retryDelay = thunk_FUN_008ae7a0(Class$System.Exception);
+    Exception$$.ctor(retryDelay,"callback-is-null",0);
+  }
+  Throw(retryDelay,0,Method$PackReader.ReadBytes());
+  caseD_15();
+  return;
+}
+
+undefined4 PackReader.__c__DisplayClass2_0$$_ReadBytes_b__0(int param_1)
+
+{
+  int displayClass2_1;
+  int iVar1;
+  undefined4 externalPackPath;
+  undefined4 head;
+  undefined4 size;
+  undefined4 key1;
+  undefined4 key2;
+  int *piVar2;
+  void *packName;
+  int iVar3;
+  int iVar4;
+  
+  if (DAT_03708d1f == '\0') {
+    FUN_00871f3c(0xb5c7);
+    DAT_03708d1f = '\x01';
+  }
+  displayClass2_1 = thunk_FUN_008ae7a0(Class$PackReader.__c__DisplayClass2_1);
+  Object$$.ctor(displayClass2_1,0);
+  if (displayClass2_1 == 0) {
+    NullPointerExceptionMaybe(0);
+    _DAT_0000000c = param_1;
+    NullPointerExceptionMaybe(0);
+  }
+  else {
+    *(int *)(displayClass2_1 + 0xc) = param_1;
+  }
+  *(undefined4 *)(displayClass2_1 + 8) = 0;
+  while( true ) {
+    iVar1 = thunk_FUN_008ae7a0(Class$PackReader.__c__DisplayClass2_2);
+    Object$$.ctor(iVar1,0);
+    if (iVar1 == 0) {
+      NullPointerExceptionMaybe(0);
+      piVar2 = (int *)&DAT_0000000c;
+      _DAT_0000000c = displayClass2_1;
+      NullPointerExceptionMaybe(0);
+    }
+    else {
+      piVar2 = (int *)(iVar1 + 0xc);
+      *piVar2 = displayClass2_1;
+    }
+    iVar4 = *piVar2;
+    if (iVar4 == 0) {
+      NullPointerExceptionMaybe(0);
+    }
+    packName = *(void **)(param_1 + 8);
+    iVar4 = *(int *)(iVar4 + 8);
+    if (packName == (void *)0x0) {
+      NullPointerExceptionMaybe(0);
+    }
+    packName = AssetMasterData.Data$$get_PackName(packName);
+    externalPackPath = PackageManager$$GetExternalPackPath(packName);
+    iVar3 = *(int *)(param_1 + 8);
+    if (iVar3 == 0) {
+      NullPointerExceptionMaybe(0);
+    }
+    head = AssetMasterData.Data$$get_Head(iVar3,0);
+    iVar3 = *(int *)(param_1 + 8);
+    if (iVar3 == 0) {
+      NullPointerExceptionMaybe(0);
+    }
+    size = AssetMasterData.Data$$get_Size(iVar3,0);
+    iVar3 = *(int *)(param_1 + 8);
+    if (iVar3 == 0) {
+      NullPointerExceptionMaybe(0);
+    }
+    key1 = AssetMasterData.Data$$get_Key1(iVar3,0);
+    iVar3 = *(int *)(param_1 + 8);
+    if (iVar3 == 0) {
+      NullPointerExceptionMaybe(0);
+    }
+    key2 = AssetMasterData.Data$$get_Key2(iVar3,0);
+    iVar4 = PackReader$$ReadDecrypt(externalPackPath,head,size,key1,key2,(uint)(iVar4 != 9));
+    if (iVar1 == 0) {
+      NullPointerExceptionMaybe(0);
+      _DAT_00000008 = iVar4;
+      NullPointerExceptionMaybe(0);
+      iVar4 = _DAT_00000008;
+    }
+    else {
+      *(int *)(iVar1 + 8) = iVar4;
+    }
+    if (iVar4 != 0) break;
+    Thread$$Sleep(*(undefined4 *)(param_1 + 0x14),0);
+    iVar1 = *(int *)(displayClass2_1 + 8) + 1;
+    *(int *)(displayClass2_1 + 8) = iVar1;
+    if (9 < iVar1) {
+      externalPackPath = thunk_FUN_008ae7a0(Class$System.Exception);
+      Exception$$.ctor(externalPackPath,StringLiteral_9337,0);
+      Throw(externalPackPath,0,Method$PackReader.__c__DisplayClass2_0._ReadBytes_b__0());
+      externalPackPath = caseD_15();
+      return externalPackPath;
+    }
+  }
+  externalPackPath = thunk_FUN_008ae7a0(Class$System.Action);
+  Action$$.ctor(externalPackPath,iVar1,Method$PackReader.__c__DisplayClass2_2._ReadBytes_b__2(),0);
+  return externalPackPath;
+}
+```
+
+so it looks like it's calling ReadDecrypt, which leads to libpenguin
+
+```c
+int _Penguin_Decrypt(byte *param_1,long param_2,size_t param_3,char *param_4,int param_5,int param_6
+                    )
+
+{
+  FILE *__stream;
+  int iVar1;
+  size_t sVar2;
+  byte *pbVar3;
+  byte *pbVar4;
+  int iVar5;
+  
+  __stream = fopen(param_4,"r");
+  if (__stream == (FILE *)0x0) {
+    iVar1 = -1;
+  }
+  else {
+    iVar1 = fseek(__stream,param_2,0);
+    if (iVar1 == 0) {
+      sVar2 = fread(param_1,1,param_3,__stream);
+      if (param_3 == sVar2) {
+        fclose(__stream);
+        if (0 < (int)param_3) {
+          iVar5 = 0x3039;
+          pbVar3 = param_1;
+          do {
+            pbVar4 = pbVar3 + 1;
+            *pbVar3 = *pbVar3 ^ (byte)((uint)param_5 >> 0x18) ^ (byte)((uint)param_6 >> 0x18) ^
+                      (byte)((uint)iVar5 >> 0x18);
+            param_5 = param_5 * 0x343fd + 0x269ec3;
+            param_6 = param_6 * 0x343fd + 0x269ec3;
+            iVar5 = iVar5 * 0x343fd + 0x269ec3;
+            pbVar3 = pbVar4;
+          } while (pbVar4 != param_1 + param_3);
+        }
+      }
+      else {
+        fclose(__stream);
+        iVar1 = -3;
+      }
+    }
+    else {
+      fclose(__stream);
+      iVar1 = -2;
+    }
+  }
+  return iVar1;
+}
+```
+
+oh nice, it's just the same encryption as the database except one of the
+three keys is hardcoded to `0x3039`
+
+ok but let's go back, where does the file path come from?
+
+```c
+void PackageManager$$GetExternalPackPath(undefined4 packName)
+{
+  undefined4 filePath;
+  
+  if (DAT_03708d38 == '\0') {
+    FUN_00871f3c(0x7445);
+    DAT_03708d38 = '\x01';
+  }
+  filePath = PackageManager$$GetPackFilePath(packName);
+  if (((*(byte *)(Class$LLAS.AssetLoader.PathResolver + 0xbf) & 2) != 0) &&
+     (*(int *)(Class$LLAS.AssetLoader.PathResolver + 0x70) == 0)) {
+    FUN_0087f998();
+  }
+  PathResolver$$ResolveFullPath(filePath);
+  return;
+}
+
+void PackageManager$$GetPackFilePath(int packName)
+
+{
+  undefined4 path;
+  
+  if (DAT_03708d37 == '\0') {
+    FUN_00871f3c(0x7449);
+    DAT_03708d37 = '\x01';
+  }
+  if (packName == 0) {
+    NullPointerExceptionMaybe(0);
+  }
+  path = String$$Substring(packName,0,1,0);
+  path = String$$Concat("pkg",path,0);
+  if (((*(byte *)(Class$System.IO.Path + 0xbf) & 2) != 0) &&
+     (*(int *)(Class$System.IO.Path + 0x70) == 0)) {
+    FUN_0087f998();
+  }
+  Path$$Combine(path,packName,0);
+  return;
+}
+```
+
+right, I should've guessed it. the pak folders sort all the packages by
+the first letter, a very simple tree probably to improve performance
+slightly
+
+ok, so what we know so far is
+
+* pack names refer to the files inside the pkg folders
+* each pack potentially contains multiple files, and the asset data tells
+  the pack manager where to seek into the package as well as how big is
+  the file
+* encryption is on a per-file basis and uses 2 keys stored in a database
+  plus the hardcoded key, same prng as the sqlite encryption
+
+I think I'll try to find all tables that contain those params and extract
+everything I can
+
 to be continued...?
