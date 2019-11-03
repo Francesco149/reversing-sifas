@@ -6214,4 +6214,14 @@ in the pkg files and extract all unique files. a cool idea would be to
 map out all the offsets and then see if there's any unused files lying
 around and what they are
 
+some of the decrypted images are weird. they have the jpg header and appear
+to be small thumbnails, but the filesize is much larger than it should.
+I suspect this is some custom format that appends a low quality jpg and
+the full quality image in the same file, but I'm not sure what yet
+
+okay, I used libmagic to detect mime type and it's detecting them as jpe.
+it seems that some platforms use jpe as an additional low res version of
+the image along with the original jpeg. renaming to jpe does not help
+getting the high res version. might have to split them manually
+
 to be continued...?
