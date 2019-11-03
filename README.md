@@ -6166,4 +6166,52 @@ ok, so what we know so far is
 I think I'll try to find all tables that contain those params and extract
 everything I can
 
+the asset path strings are really weird, they seem to be short 2 or so
+character strings with random characters, almost looks like an integer
+encoded as a string. I can't find any thing that generates them, I think
+this is just how assets are packaged at klab, and I don't think we can
+recover the filenames
+
+there is a `m_asset_package_mapping` table in the assets db that seems to
+link some names to packs and metapacks. these don't seem to be filenames
+but rather folder names and it doesnt seem to contain every single asset
+
+if i search for metapack in the game i find a class named SplitMetaPack.
+it seems to have to do with splitting downloads, we probably don't care
+
+so i added this dump function to my klbvfs implementation:
+
+```python
+def do_dump(args):
+  for source in args.directories:
+    pattern = re.compile("asset_a_ja_0.db_[a-z0-9]+.db")
+    matches = [f for f in os.listdir(source) if pattern.match(f)]
+    assets = matches[0]
+    print(assets)
+    dstdir = os.path.join(source, 'texture')
+    try:
+      os.mkdir(dstdir)
+    except FileExistsError:
+      pass
+    db = klb_sqlite(assets).cursor()
+    q = 'select distinct pack_name, head, size, key1, key2 from texture'
+    for (pack_name, head, size, key1, key2) in db.execute(q):
+      pkgpath = os.path.join(source, "pkg" + pack_name[:1], pack_name)
+      key = [key1, key2, 0x3039]
+      pkg = codecs.open(pkgpath, mode='rb', encoding='klbvfs', errors=key)
+      pkg.seek(head)
+      print(key)
+      print(pkg.errors)
+      fpath = os.path.join(dstdir, "%s_%d_.png" % (pack_name, head))
+      dst = open(fpath, 'wb+')
+      shutil.copyfileobj(pkg, dst, size)
+```
+
+where directories is a list of /files/files directories where pkg folder
+reside, and sure enough, I got a bunch of correctly decrypted png's!
+the hard part is figuring all the tables that contain references to files
+in the pkg files and extract all unique files. a cool idea would be to
+map out all the offsets and then see if there's any unused files lying
+around and what they are
+
 to be continued...?
